@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Inspect Text')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Inspect Text</h1>
+        <p class="subtitle">
+            Paste text or upload a <code>.txt</code> file. Every sentence is turned into the features the model uses,
+            and every pair of neighbouring sentences into the difference vector the model is given.
+        </p>
+    </div>
+
+    <div class="alert alert-warning" th:if="${error}" th:text="${error}"></div>
+
+    <div class="card">
+        <div class="card-label">Input</div>
+        <form method="post" th:action="@{/inspect}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="model_name">Features of model <span class="muted">(each model keeps the statistics it was trained with)</span></label>
+                <select id="model_name" name="modelName">
+                    <option th:each="m : ${inspectModels}" th:value="${m}" th:text="${m}"
+                            th:selected="${m == selectedModel}"></option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group grow">
+                    <label for="text">Paste text <span class="muted">(one sentence per line)</span></label>
+                    <textarea id="text" name="text" rows="7"
+                        placeholder="Paste your text here, one sentence per line..." th:text="${inputText}"></textarea>
+                </div>
+                <div class="form-group upload-col">
+                    <label for="file">Or upload a .txt file</label>
+                    <label class="file-drop" for="file">
+                        <span class="file-icon">↑</span>
+                        <span id="file-label">Choose file</span>
+                        <input type="file" id="file" name="file" accept=".txt"
+                            onchange="document.getElementById('file-label').textContent = this.files[0]?.name || 'Choose file'">
+                    </label>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Inspect →</button>
+        </form>
+    </div>
+
+    <div th:if="${result}">
+        <section class="mt">
+            <h2 class="section-title">Text Overview</h2>
+            <div class="stat-grid-7">
+                <div class="stat-box"><div class="stat-value" th:text="${result.nSentences}">0</div><div class="stat-key">Sentences</div></div>
+                <div class="stat-box"><div class="stat-value" th:text="${result.nPairs}">0</div><div class="stat-key">Sentence pairs</div></div>
+                <div class="stat-box"><div class="stat-value">9 + 256</div><div class="stat-key">Features / sentence</div></div>
+                <div class="stat-box"><div class="stat-value">11</div><div class="stat-key">Features / pair</div></div>
+            </div>
+        </section>
+
+        <section class="mt">
+            <h2 class="section-title">Sentences and Pairs
+                <span class="section-sub">(all <span th:text="${result.nSentences}"></span> sentences)</span></h2>
+
+            <div class="metric-note">
+                <strong>Per sentence:</strong> 9 scalar features, shown as extracted (<em>raw</em>) and as a
+                <em>z-score</em> <code>(value − training mean) / training std</code>, which is what the model actually sees.
+                The 256 hashed character-trigram buckets are not listed one by one; they enter the pair vector through
+                the <code>ngram_cosine_similarity</code>.<br>
+                <strong>Between sentences:</strong> the pair vector given to the model:
+                <code>diff_x = |z_x(A) − z_x(B)|</code> for each of the 9 features,
+                <code>ngram_cosine_similarity</code> (1 = same trigram profile), and
+                <code>overall_distance = sqrt( Σ (z_x(A) − z_x(B))² / 9 )</code>.
+                Values are shown as computed, not scaled.
+            </div>
+
+            <div class="sentence-list">
+                <th:block th:each="s : ${result.sentences}">
+
+                    <div class="sentence-card">
+                        <div class="sent-header">
+                            <span class="sent-num" th:text="'#' + ${s.index}">#1</span>
+                            <span class="sent-last" th:text="${s.nGramBucketsUsed} + ' / 256 trigram buckets used'"></span>
+                        </div>
+                        <div class="sent-text" th:text="${s.text}"></div>
+                        <table class="feat-table">
+                            <thead><tr><th>feature</th><th>raw</th><th>z-score</th></tr></thead>
+                            <tbody>
+                                <tr th:each="name, it : ${result.sentenceFeatureNames}">
+                                    <td th:text="${name}"></td>
+                                    <td th:text="${#numbers.formatDecimal(s.raw[it.index], 1, 4)}"></td>
+                                    <td th:text="${#numbers.formatDecimal(s.zScore[it.index], 1, 4)}"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pair-card" th:if="${s.toNext != null}">
+                        <div class="pair-title" th:text="'Pair #' + ${s.index} + ' → #' + (${s.index} + 1) + '  ·  difference vector (11 features)'"></div>
+                        <table class="feat-table">
+                            <tbody>
+                                <tr th:each="name, it : ${result.pairFeatureNames}">
+                                    <td th:text="${name}"></td>
+                                    <td th:text="${#numbers.formatDecimal(s.toNext[it.index], 1, 4)}"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </th:block>
+            </div>
+        </section>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

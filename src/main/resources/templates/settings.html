@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Settings')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Settings</h1>
+        <p class="subtitle">Where the app looks for the dataset and stores freshly trained models. Set these
+            in <code>application.properties</code>, not here.</p>
+    </div>
+
+    <div class="card mt">
+        <div class="card-label">Dataset</div>
+        <p class="muted small">Dataset root (<code>app.dataset.root</code>):</p>
+        <p><code th:text="${datasetRoot}"></code></p>
+        <span class="hint">Should contain <code>easy/train/</code>, <code>medium/train/</code>, and
+            <code>hard/train/</code> sub-directories.</span>
+    </div>
+
+    <div class="card mt">
+        <div class="card-label">Trained models</div>
+        <p class="muted small">Where a fresh training run from the Train page is saved
+            (<code>app.trained-models.dir</code>):</p>
+        <p><code th:text="${trainedModelsDir}"></code></p>
+        <span class="hint">Checked first on every prediction, before falling back to the bundled baseline model.</span>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

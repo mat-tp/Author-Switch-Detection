@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Home')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+
+<main>
+    <div class="hero">
+        <h1>Author Switch Detector</h1>
+        <p class="subtitle">
+            Analyse writing style across sentences and detect when the author may have changed.
+            Paste any text to inspect it, or train a classifier on a labelled dataset.
+        </p>
+    </div>
+
+<!--    <div class="pitch-card">-->
+<!--        <div>-->
+<!--            <h2 class="pitch-title">Have you ever wondered if you and a friend write the same way?</h2>-->
+<!--            <p class="pitch-body">-->
+<!--                This tool takes a piece of text and looks sentence by sentence for a change in writing style.-->
+<!--                A <strong>switch</strong> is the moment you start reading as Author A and, a few sentences later,-->
+<!--                you're actually reading Author B instead. We tell you exactly where that happened.-->
+<!--            </p>-->
+<!--            <p class="pitch-body muted small">-->
+<!--                It's for anyone curious about writing style: students checking a group essay, writers comparing-->
+<!--                drafts with a co-author, editors reviewing a manuscript, or friends settling a bet about who-->
+<!--                really wrote what.-->
+<!--            </p>-->
+<!--        </div>-->
+<!--    </div>-->
+
+    <p class="task-note">
+        Every document analyzed here is expected to already contain an author switch, so deciding
+        <em>whether</em> a document is multi-author is redundant. The two questions that matter are:
+    </p>
+    <div class="task-explainer">
+        <div class="task-explain-card">
+            <div class="task-num">Task 1</div>
+            <h3>Where do authors switch?</h3>
+            <p>Find the exact sentence boundaries where the writing style changes from one author to another.</p>
+        </div>
+        <div class="task-explain-card">
+            <div class="task-num">Task 2</div>
+            <h3>Group sentences by author</h3>
+            <p>Cluster the resulting segments by writing style so repeated authors are recognised as the same
+                author, and estimate how many authors wrote the document.</p>
+        </div>
+    </div>
+
+    <div class="card-grid">
+        <div class="card highlight-card">
+            <div class="card-label">Get Started</div>
+            <p class="card-desc">
+                Paste or upload a text file to break it into sentences,
+                view statistics, and explore each sentence's writing style.
+            </p>
+            <a th:href="@{/inspect}" class="btn btn-primary">Inspect Text →</a>
+        </div>
+
+        <div class="card">
+            <div class="card-label">Model Status</div>
+            <div th:if="${trained}">
+                <div class="status status-ok">● Model trained</div>
+                <div class="metric-row" th:if="${metrics}"><span>F1 Score</span> <strong th:text="${#numbers.formatDecimal(metrics.f1, 1, 4)}">0</strong></div>
+                <div class="metric-row" th:if="${metrics}"><span>Precision</span> <strong th:text="${#numbers.formatDecimal(metrics.precision, 1, 4)}">0</strong></div>
+                <div class="metric-row" th:if="${metrics}"><span>Recall</span> <strong th:text="${#numbers.formatDecimal(metrics.recall, 1, 4)}">0</strong></div>
+                <a th:href="@{/predict}" class="btn btn-secondary mt">Run Prediction →</a>
+            </div>
+            <div th:unless="${trained}">
+                <div class="status status-warn">● Not trained yet</div>
+                <p class="muted small">Train a classifier on a labelled dataset to enable author-switch prediction.</p>
+                <a th:href="@{/train}" class="btn btn-secondary mt">Train Model →</a>
+            </div>
+        </div>
+    </div>
+
+    <details class="dropdown">
+        <summary>How it works</summary>
+        <div class="dropdown-body">
+            <ol class="steps">
+                <li><strong>Inspect:</strong> paste or upload text to explore its style</li>
+                <li><strong>Explore:</strong> view statistics over a labelled dataset</li>
+                <li><strong>Train:</strong> fit a classifier on sentence-pair features</li>
+                <li><strong>Predict:</strong> detect author switches in new text</li>
+            </ol>
+        </div>
+    </details>
+
+    <details class="dropdown">
+        <summary>Using the application</summary>
+        <div class="dropdown-body">
+            <ol class="steps">
+                <li>Please make sure each sentence starts on its own new line, since this is how the tool tells sentences apart.</li>
+                <li>We support pasted text as well as uploaded <code>.txt</code> files (PDF support is on the way).</li>
+            </ol>
+        </div>
+    </details>
+</main>
+
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

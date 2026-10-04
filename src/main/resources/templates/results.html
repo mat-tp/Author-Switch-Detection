@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Results')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Evaluation Results</h1>
+        <p class="subtitle">Task 2 (author-switch detection at sentence boundaries) is the primary task.
+            These metrics are from the most recent training run.</p>
+    </div>
+
+    <div class="card" th:if="${!allMetrics.isEmpty()}">
+        <div class="card-label">Compare Trained Models</div>
+        <table class="info-table compare-table mt">
+            <tr><th>Model</th><th>Trained on</th><th>By</th><th>Evaluated on</th><th>F1</th><th>Precision</th><th>Recall</th><th>Balanced Acc.</th><th>Threshold</th></tr>
+            <tr th:each="m : ${allMetrics}">
+                <td><code th:text="${m.versionName}"></code></td>
+                <td th:text="${m.full} ? 'full dataset' : ('sample (' + ${m.nProblems} + ')')"></td>
+                <td th:text="${m.trainedBy == 'cli'} ? 'CLI (Main.java)' : 'Web'"></td>
+                <td>
+                    <span th:if="${m.evaluatedOnTest}" class="badge badge-ok">held-out test</span>
+                    <span th:unless="${m.evaluatedOnTest}" class="badge badge-warn">validation only</span>
+                </td>
+                <td th:text="${#numbers.formatDecimal(m.f1, 1, 4)}"></td>
+                <td th:text="${#numbers.formatDecimal(m.precision, 1, 4)}"></td>
+                <td th:text="${#numbers.formatDecimal(m.recall, 1, 4)}"></td>
+                <td th:text="${#numbers.formatDecimal(m.balancedAccuracy, 1, 4)}"></td>
+                <td th:text="${m.modelName == 'decision_tree'} ? 'n/a' : ${#numbers.formatDecimal(m.decisionThreshold, 1, 2)}"></td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="card mt" th:if="${!availableModels.isEmpty()}">
+        <div class="card-label">Model Detail</div>
+        <form method="get" th:action="@{/results}">
+            <div class="form-group">
+                <label for="model_name">Model</label>
+                <select id="model_name" name="modelName" onchange="this.form.submit()">
+                    <option th:each="m : ${availableModels}" th:value="${m}" th:text="${m}" th:selected="${m == selectedModel}"></option>
+                </select>
+            </div>
+        </form>
+    </div>
+
+    <div th:if="${metrics}">
+        <p class="muted small">Showing results for <strong th:text="${metrics.versionName}"></strong>
+            &mdash;
+            <span th:if="${metrics.evaluatedOnTest}" class="badge badge-ok">held-out test split</span>
+            <span th:unless="${metrics.evaluatedOnTest}" class="badge badge-warn">validation split only (no test data)</span>
+            <span class="muted small" th:text="${metrics.trainedBy == 'cli'} ? '· trained via Main.java / build.sh' : '· trained via the web Train page'"></span>
+        </p>
+        <div class="card-grid three-col">
+            <div class="metric-card">
+                <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.f1, 1, 4)}"></div>
+                <div class="metric-label">F1 Score</div>
+            </div>
+            <div class="metric-card">
+                <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.precision, 1, 4)}"></div>
+                <div class="metric-label">Precision</div>
+            </div>
+            <div class="metric-card">
+                <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.recall, 1, 4)}"></div>
+                <div class="metric-label">Recall</div>
+            </div>
+            <div class="metric-card">
+                <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.balancedAccuracy, 1, 4)}"></div>
+                <div class="metric-label">Balanced Accuracy</div>
+            </div>
+        </div>
+        <p class="muted small mt-sm" th:if="${metrics.modelName != 'decision_tree'}">Decision threshold: <strong th:text="${#numbers.formatDecimal(metrics.decisionThreshold, 1, 2)}"></strong></p>
+        <p class="muted small mt-sm" th:if="${metrics.modelName == 'decision_tree'}">Decision threshold: <strong>n/a</strong>, a decision tree outputs a class, not a probability.</p>
+
+        <div class="card mt" th:if="${metrics.difficultyBreakdownCsv != null and !metrics.difficultyBreakdownCsv.isEmpty()}">
+            <div class="card-label">Breakdown by difficulty</div>
+            <p class="muted small">Same split as above (<span th:text="${metrics.evaluatedOnTest} ? 'held-out test' : 'validation'"></span>), evaluated separately per difficulty level.</p>
+            <ul class="difficulty-breakdown">
+                <li th:each="entry : ${#strings.arraySplit(metrics.difficultyBreakdownCsv, ';')}" th:text="${entry}"></li>
+            </ul>
+        </div>
+
+        <div class="card mt" th:if="${metrics.chosenConfig != null and !metrics.chosenConfig.isEmpty()}">
+            <div class="card-label">Feature / parameter search</div>
+            <p class="muted small">Chosen configuration: <strong th:text="${metrics.chosenConfig}"></strong></p>
+            <details class="dropdown">
+                <summary>Every configuration tried</summary>
+                <div class="dropdown-body">
+                    <pre class="log" th:text="${metrics.gridResultsDisplay}"></pre>
+                </div>
+            </details>
+        </div>
+
+        <div class="card mt" th:if="${metrics.curveYCsv != null and !metrics.curveYCsv.isEmpty()}">
+            <div class="card-label" th:text="${metrics.curveYLabel} + ' over ' + ${metrics.curveXLabel}"></div>
+            <canvas id="training-curve" height="90"></canvas>
+        </div>
+    </div>
+
+    <div class="card" th:unless="${metrics}">
+        <p class="muted">No results yet. <a th:href="@{/train}">Train a model</a> first.</p>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+
+<script th:if="${metrics != null and metrics.curveYCsv != null and !metrics.curveYCsv.isEmpty()}"
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script th:if="${metrics != null and metrics.curveYCsv != null and !metrics.curveYCsv.isEmpty()}" th:inline="javascript">
+    (function () {
+        const xValues = /*[[${metrics.curveXCsv}]]*/ "".split(",").map(Number);
+        const yValues = /*[[${metrics.curveYCsv}]]*/ "".split(",").map(Number);
+        const yLabel = /*[[${metrics.curveYLabel}]]*/ "";
+        const y2Label = /*[[${metrics.curveY2Label}]]*/ "";
+        const y2Csv = /*[[${metrics.curveY2Csv}]]*/ "";
+
+        const datasets = [{ label: yLabel, data: yValues, borderColor: "#3b6fe0", tension: 0.15, pointRadius: 0 }];
+
+        if (y2Label && y2Csv) {
+            datasets.push({ label: y2Label, data: y2Csv.split(",").map(Number), borderColor: "#dc2626", tension: 0.15, pointRadius: 0 });
+        }
+
+        new Chart(document.getElementById("training-curve"), {
+            type: "line",
+            data: { labels: xValues, datasets: datasets },
+            options: { responsive: true, scales: { x: { title: { display: true, text: /*[[${metrics.curveXLabel}]]*/ "" } } } }
+        });
+    })();
+</script>
+</body>
+</html>

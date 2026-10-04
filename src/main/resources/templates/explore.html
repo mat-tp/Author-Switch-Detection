@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Explore Dataset')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Explore Dataset</h1>
+        <p class="subtitle">Statistics for each difficulty level in the training set. Dataset root:
+            <code th:text="${datasetRoot}"></code></p>
+    </div>
+
+    <div class="card" th:unless="${datasetConfigured}">
+        <p class="muted">
+            No dataset is wired up yet. Once a labelled dataset (e.g. the PAN-style corpus) is available on
+            disk, this page will show per-difficulty stats: problems, sentences, pairs, switch rate, and
+            example switch / same-author sentence pairs with their extracted features.
+        </p>
+    </div>
+
+    <div th:if="${datasetConfigured}">
+
+        <table class="info-table">
+            <thead>
+            <tr>
+                <th>Difficulty</th>
+                <th>Problems</th>
+                <th>Sentences</th>
+                <th>Pairs</th>
+                <th>Switches</th>
+                <th>Switch rate</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="d : ${difficultyStats}">
+                <td th:text="${#strings.capitalize(d.difficulty)}"></td>
+                <td th:text="${d.nProblems}"></td>
+                <td th:text="${d.nSentences}"></td>
+                <td th:text="${d.nPairs}"></td>
+                <td th:text="${d.nSwitches}"></td>
+                <td th:text="${d.switchRatePercent} + '%'"></td>
+            </tr>
+            </tbody>
+        </table>
+
+        <div th:each="d : ${difficultyStats}" class="card mt">
+            <div class="card-label" th:text="${#strings.capitalize(d.difficulty)} + ' — example pairs'"></div>
+
+            <div class="two-col">
+                <div th:if="${d.exampleSwitchPair}">
+                    <p class="muted"><strong>Author switch</strong></p>
+                    <p th:text="${d.exampleSwitchPair.sentenceA}"></p>
+                    <p th:text="${d.exampleSwitchPair.sentenceB}"></p>
+                    <table class="info-table">
+                        <tbody>
+                        <tr th:each="f : ${d.exampleSwitchPair.featuresA}">
+                            <td th:text="${f.key}"></td>
+                            <td th:text="${f.value}"></td>
+                            <td th:text="${d.exampleSwitchPair.featuresB.get(f.key)}"></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div th:if="${d.exampleSameAuthorPair}">
+                    <p class="muted"><strong>Same author</strong></p>
+                    <p th:text="${d.exampleSameAuthorPair.sentenceA}"></p>
+                    <p th:text="${d.exampleSameAuthorPair.sentenceB}"></p>
+                    <table class="info-table">
+                        <tbody>
+                        <tr th:each="f : ${d.exampleSameAuthorPair.featuresA}">
+                            <td th:text="${f.key}"></td>
+                            <td th:text="${f.value}"></td>
+                            <td th:text="${d.exampleSameAuthorPair.featuresB.get(f.key)}"></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

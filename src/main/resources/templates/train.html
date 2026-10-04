@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Train Model')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Train Model</h1>
+        <p class="subtitle">Pick a classifier and click Train — it always fits on the full dataset (all
+            difficulty levels combined), searching a small grid of feature sets and hyperparameters and
+            keeping whichever combination scores best on the validation split.</p>
+    </div>
+
+    <div class="two-col">
+        <div class="card">
+            <div class="card-label">Configuration</div>
+            <form method="post" th:action="@{/train}">
+                <div class="form-group">
+                    <label for="model_name">Classifier</label>
+                    <select id="model_name" name="modelName">
+                        <option th:each="m : ${models}" th:value="${m}" th:text="${m}"></option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" id="train-submit-btn">Train Model</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="card-label">Training Progress</div>
+            <div id="progress-wrap">
+                <div class="progress-bar-track"><div id="progress-bar-fill"></div></div>
+                <div class="progress-labels"><span id="progress-task">Idle</span><span id="progress-percent">0%</span></div>
+            </div>
+            <pre class="log log-fill" id="training-log">The training log will appear here once you start training.</pre>
+            <a th:href="@{/results}" class="btn btn-secondary mt" id="view-results-btn" style="display:none;">View Results</a>
+        </div>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+
+<script th:inline="javascript">
+(function () {
+    const statusUrl = /*[[@{/train/status}]]*/ "/train/status";
+    const started = /*[[${started}]]*/ false;
+    const progressFill = document.getElementById("progress-bar-fill");
+    const progressTask = document.getElementById("progress-task");
+    const progressPercent = document.getElementById("progress-percent");
+    const logBox = document.getElementById("training-log");
+    const viewResultsBtn = document.getElementById("view-results-btn");
+    const submitBtn = document.getElementById("train-submit-btn");
+    let poller = null;
+
+    function renderLog(lines) {
+        logBox.textContent = lines && lines.length ? lines.join("\n") : "The training log will appear here once you start training.";
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function poll() {
+        fetch(statusUrl).then((r) => r.json()).then((state) => {
+            progressFill.style.width = state.percent + "%";
+            progressPercent.textContent = state.percent + "%";
+            progressTask.textContent = state.current_task || "";
+            renderLog(state.log);
+            if (state.running) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = "Training...";
+            } else {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Retrain Model";
+                if (poller) { clearInterval(poller); poller = null; }
+                if (state.done) viewResultsBtn.style.display = "inline-block";
+                if (state.error) progressTask.textContent = "Failed: " + state.error;
+            }
+        }).catch(() => {});
+    }
+
+    if (started) { poll(); poller = setInterval(poll, 1000); }
+    fetch(statusUrl).then((r) => r.json()).then((state) => {
+        if (state.running && !poller) { poll(); poller = setInterval(poll, 1000); }
+    }).catch(() => {});
+})();
+</script>
+</body>
+</html>

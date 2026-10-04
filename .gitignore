@@ -1,0 +1,40 @@
+# Build output and compiled binaries
+target/
+out/
+*.class
+*.jar
+*.war
+
+# Ignore compiled build outputs & target directories
+target/
+out/
+*.class
+*.jar
+*.war
+
+# Ignore IDE & Editor configurations
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Ignore PDF, Zip, and Text dataset files
+*.pdf
+*.zip
+*.txt
+
+# Environment and OS temporary files
+.DS_Store
+Thumbs.db
+*.log
+
+# Large Datasets & Models (Keep repositories lightweight)
+dataset/*
+dataset/mawsa26-pan-zenodo-DATA/*
+data/models/*
+*.zip
+
+# Ignore data model artifacts
+data/models/

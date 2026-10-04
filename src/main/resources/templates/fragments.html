@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<div th:fragment="head(title)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${title} + ' · Author Switch Detector'">Author Switch Detector</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" th:href="@{/style.css}">
+</div>
+
+<header th:fragment="header">
+    <nav>
+        <a th:href="@{/}" class="nav-brand">
+            <span class="brand-icon">◈</span>
+            Author Switch Detector
+        </a>
+        <div class="nav-links">
+            <th:block th:if="${currentUser != null}">
+                <a th:href="@{/inspect}">Inspect</a>
+                <a th:href="@{/explore}">Explore</a>
+                <a th:if="${currentUser.admin}" th:href="@{/train}">Train</a>
+                <a th:href="@{/predict}">Predict</a>
+                <a th:href="@{/results}">Results</a>
+                <a th:if="${currentUser.admin}" th:href="@{/settings}">Settings</a>
+                <a th:if="${currentUser.admin}" th:href="@{/admin/users}">Admin</a>
+                <span class="nav-divider"></span>
+                <span class="nav-user" th:text="${currentUser.username}">user</span>
+                <a th:href="@{/auth/logout}" class="btn-nav-logout">Log out</a>
+            </th:block>
+            <th:block th:if="${currentUser == null}">
+                <a th:href="@{/auth/login}">Log in</a>
+                <a th:href="@{/auth/register}">Register</a>
+            </th:block>
+        </div>
+    </nav>
+</header>
+
+<footer th:fragment="footer">
+    <span>Author Switch Detector · PAN 2026 MAWSA</span>
+    <span class="footer-user" th:if="${currentUser != null}">
+        Logged in as <strong th:text="${currentUser.username}">user</strong>
+    </span>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Predict')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Predict Author Switches</h1>
+        <p class="subtitle">Paste text, or upload a <code>.txt</code> file, to label each sentence boundary as
+            <em>same author</em> or <em>author switch</em>.</p>
+    </div>
+
+    <div class="random-banner" th:unless="${trained}">
+        <div>
+            <strong>No trained model found — predictions are running in random mode.</strong>
+            <span><a th:href="@{/train}">Train a model →</a> for real predictions.</span>
+        </div>
+    </div>
+
+    <div class="alert alert-warning" th:if="${error}" th:text="${error}"></div>
+
+    <div class="two-col">
+        <div class="card">
+            <div class="card-label">Input</div>
+            <form method="post" th:action="@{/predict}" enctype="multipart/form-data">
+                <div class="form-group" th:if="${!availableModels.isEmpty()}">
+                    <label for="model_name">Model</label>
+                    <select id="model_name" name="modelName">
+                        <option th:each="m : ${availableModels}" th:value="${m}" th:text="${m}"
+                                th:selected="${m == selectedModel}"></option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="text">Paste text <span class="muted">(one sentence per line)</span></label>
+                    <textarea id="text" name="text" rows="10" placeholder="Paste sentences here, one per line..." th:text="${inputText}"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="file">Or upload a .txt file</label>
+                    <label class="file-drop" for="file">
+                        <span class="file-icon">↑</span>
+                        <span id="file-label">Choose file</span>
+                        <input type="file" id="file" name="file" accept=".txt"
+                            onchange="document.getElementById('file-label').textContent = this.files[0]?.name || 'Choose file'">
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="truthFile">Truth values <span class="muted">(optional, <code>truth-problem-N.json</code>)</span></label>
+                    <label class="file-drop" for="truthFile">
+                        <span class="file-icon">↑</span>
+                        <span id="truth-label">Choose truth file</span>
+                        <input type="file" id="truthFile" name="truthFile" accept=".json"
+                            onchange="document.getElementById('truth-label').textContent = this.files[0]?.name || 'Choose truth file'">
+                    </label>
+                    <p class="muted small">Upload the matching <code>{"changes": [0, 1, ...]}</code> file to compare the
+                        predictions with the truth and get accuracy, precision, recall and F1.</p>
+                </div>
+                <button type="submit" class="btn btn-primary">Run Detection</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="card-label">Results</div>
+
+            <div th:if="${result}">
+                <div class="summary-row">
+                    <span class="muted" th:text="${result.nSentences} + ' sentences · ' + ${result.nPairs} + ' pairs'"></span>
+                    <span class="mode-tag" th:classappend="${result.mode == 'random'} ? 'mode-random' : 'mode-model'"
+                          th:text="${result.mode == 'random'} ? 'Random' : 'Model'"></span>
+                </div>
+
+                <div class="task-summary">
+                    <div class="task-card">
+                        <div class="task-card-label">Switches</div>
+                        <span class="badge" th:classappend="${result.nSwitches > 0} ? 'badge-warn' : 'badge-ok'"
+                              th:text="${result.nSwitches} + ' / ' + ${result.nPairs}"></span>
+                    </div>
+                    <div class="task-card" title="The text cut at every predicted switch. The same author can come back, so this is not an author count.">
+                        <div class="task-card-label">Segments (switches + 1)</div>
+                        <span class="badge badge-info" th:text="${result.nSegments}"></span>
+                    </div>
+                    <div class="task-card" th:if="${result.hasThreshold}">
+                        <div class="task-card-label">Threshold</div>
+                        <span class="badge badge-info" th:text="${result.threshold}"></span>
+                    </div>
+                    <div class="task-card" th:unless="${result.hasThreshold}">
+                        <div class="task-card-label">Threshold</div>
+                        <span class="muted small">none: the tree outputs a class, not a probability</span>
+                    </div>
+                </div>
+
+                <div class="alert alert-warning" th:if="${result.truthError}" th:text="${result.truthError}"></div>
+
+                <div th:if="${result.metrics}">
+                    <h3 class="section-title">Predicted vs. truth</h3>
+                    <div class="task-summary">
+                        <div class="task-card"><div class="task-card-label">Accuracy</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.accuracy, 1, 4)}"></span></div>
+                        <div class="task-card"><div class="task-card-label">Precision</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.precision, 1, 4)}"></span></div>
+                        <div class="task-card"><div class="task-card-label">Recall</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.recall, 1, 4)}"></span></div>
+                        <div class="task-card"><div class="task-card-label">F1</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.f1, 1, 4)}"></span></div>
+                        <div class="task-card"><div class="task-card-label">Balanced accuracy</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.balancedAccuracy, 1, 4)}"></span></div>
+                        <div class="task-card"><div class="task-card-label">Specificity</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.specificity, 1, 4)}"></span></div>
+                    </div>
+                    <table class="confusion">
+                        <thead><tr><th></th><th>predicted same</th><th>predicted switch</th></tr></thead>
+                        <tbody>
+                            <tr><th>truth: same</th><td th:text="${result.metrics.trueNegatives} + ' (TN)'"></td><td th:text="${result.metrics.falsePositives} + ' (FP)'"></td></tr>
+                            <tr><th>truth: switch</th><td th:text="${result.metrics.falseNegatives} + ' (FN)'"></td><td th:text="${result.metrics.truePositives} + ' (TP)'"></td></tr>
+                        </tbody>
+                    </table>
+                    <p class="muted small">
+                        Truth has <span th:text="${result.metrics.actualSwitches}"></span> switches,
+                        the model predicted <span th:text="${result.metrics.predictedSwitches}"></span>.
+                        Always predicting "same author" would score
+                        <span th:text="${#numbers.formatDecimal(result.metrics.majorityBaseline, 1, 4)}"></span> accuracy
+                        (the majority baseline): the switch class is the minority, so compare F1 and balanced accuracy, not accuracy alone.
+                    </p>
+                </div>
+
+                <details class="dropdown" th:if="${!result.modelRules.isEmpty()}">
+                    <summary>The model as rules (how every decision below is made)</summary>
+                    <div class="dropdown-body">
+                        <div class="rules" th:text="${#strings.listJoin(result.modelRules, '&#10;')}"></div>
+                        <p class="muted small">Features are the pair features: <code>diff_*</code> is an absolute z-score
+                            difference, so higher means the two sentences differ more on that feature.</p>
+                    </div>
+                </details>
+
+                <details class="dropdown">
+                    <summary th:text="'Sentence-pair detail (' + ${result.nPairs} + ' pairs)'"></summary>
+                    <div class="dropdown-body">
+                        <div class="prediction-list">
+                            <div class="prediction-item" th:each="pair : ${result.pairs}" th:classappend="${pair.isSwitch} ? 'is-switch' : ''">
+                                <div class="pred-header">
+                                    <span class="pair-num" th:text="'Pair ' + (${pair.index} + 1)"></span>
+                                    <span class="badge" th:classappend="${pair.isSwitch} ? 'badge-warn' : 'badge-ok'"
+                                          th:text="${pair.isSwitch} ? 'Switch' : 'Same'"></span>
+                                    <span class="prob" th:if="${pair.probability != null}" th:text="'p = ' + ${pair.probability}"></span>
+                                    <th:block th:if="${pair.truth != null}">
+                                        <span class="muted small" th:text="'truth: ' + (${pair.truth} == 1 ? 'Switch' : 'Same')"></span>
+                                        <span class="badge badge-outcome" th:classappend="${pair.correct} ? 'badge-ok' : 'badge-warn'"
+                                              th:text="${pair.outcome} + (${pair.correct} ? ' ✓' : ' ✗')"></span>
+                                    </th:block>
+                                </div>
+                                <div class="pred-sent before-sent" th:text="${pair.sentenceA}"></div>
+                                <div class="pred-divider">↓</div>
+                                <div class="pred-sent after-sent" th:text="${pair.sentenceB}"></div>
+                                <ul class="reasons" th:if="${!pair.reasons.isEmpty()}">
+                                    <li th:each="r : ${pair.reasons}" th:text="${r}"></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            <p class="muted" th:unless="${result}">Results will appear here once you submit text.</p>
+        </div>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Admin · Users')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Registered Users</h1>
+        <p class="subtitle"><span th:text="${users.size()}"></span> account(s) in the system.</p>
+    </div>
+
+    <div class="card">
+        <table class="info-table">
+            <thead><tr><th>Username</th><th>Role</th><th>Created</th></tr></thead>
+            <tbody>
+                <tr th:each="u : ${users}">
+                    <td><code th:text="${u.username}"></code></td>
+                    <td><span class="badge" th:classappend="${u.admin} ? 'badge-warn' : 'badge-ok'" th:text="${u.role}"></span></td>
+                    <td class="muted" th:text="${#temporals.format(u.createdAt, 'yyyy-MM-dd')}"></td>
+                </tr>
+                <tr th:if="${users.isEmpty()}"><td colspan="3" class="muted">No users yet.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>
