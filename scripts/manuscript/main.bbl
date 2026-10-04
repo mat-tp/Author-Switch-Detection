@@ -1,0 +1,136 @@
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\urlprefix}{URL }
+\providecommand{\doi}[1]{https://doi.org/#1}
+
+\bibitem{alshamasi2022ensemble}
+Alshamasi, S., Menai, M.: Ensemble-based clustering for writing style change
+  detection in multi-authored textual documents. In: {CLEF} (Working Notes).
+  pp. 2357--2374 (2022)
+
+\bibitem{alsheddi2025team}
+Alsheddi, A.S., Menai, M.E.B.: Team {KSU} at {PAN} 2025: Multi-author writing
+  style analysis in english texts based on graph convolutional networks (2025)
+
+\bibitem{bevendorff2021overview}
+Bevendorff, J., Chulvi, B., De~La Pe{\~n}a~Sarrac{\'e}n, G.L., Kestemont, M.,
+  Manjavacas, E., Markov, I., Mayerl, M., Potthast, M., Rangel, F., Rosso, P.,
+  et~al.: Overview of {PAN} 2021: Authorship verification, profiling hate
+  speech spreaders on twitter, and style change detection. In: International
+  Conference of the Cross-Language Evaluation Forum for European Languages. pp.
+  419--431. Springer (2021)
+
+\bibitem{bevendorff:2026b}
+Bevendorff, J., Fr{\"o}be, M., Greiner-Petter, A., Jakoby, A., Mayerl, M.,
+  Nakov, P., Plutz, H., Potthast, M., Stein, B., Ta, M.N., Wang, Y., Zangerle,
+  E.: {Overview of PAN 2026: Voight-Kampff Generative AI Detection, Text
+  Watermarking, Multi-Author Writing Style Analysis, Generative Plagiarism
+  Detection, and Reasoning Trajectory Detection}. In: Hagen, M., Potthast, M.,
+  Stein, B., Schaer, P., Zangerle, E., Barr{\'o}n-Cede{\~n}o, A., de~Herrera,
+  A.G.S., Salido, E.S., MacAvaney, S., Stru{\ss}, J.M. (eds.) Experimental IR
+  Meets Multilinguality, Multimodality, and Interaction. Proceedings of the
+  Seventeenth International Conference of the CLEF Association (CLEF 2026).
+  Lecture Notes in Computer Science, Springer, Berlin Heidelberg New York (Sep
+  2026)
+
+\bibitem{bevendorff:2026a}
+Bevendorff, J., Fr{\"o}be, M., Greiner-Petter, A., Jakoby, A., Mayerl, M.,
+  Nakov, P., Plutz, H., Ta, M., Wang, Y., Zangerle, E.: {Overview of PAN 2026:
+  Voight-Kampff Generative AI Detection, Text Watermarking, Multi-author
+  Writing Style Analysis, Generative Plagiarism Detection, and Reasoning
+  Trajectory Detection -- Extended Abstract}. In: Campos, R., Jatowt, A., Lan,
+  Y., Aliannejadi, M., Bauer, C., MacAvaney, S., Ren, Z., Verberne, S., Bai,
+  N., Mansoury, M. (eds.) Advances in Information Retrieval. 48th European
+  Conference on IR Research (ECIR 2026). Lecture Notes in Computer Science,
+  vol. 16485, pp. 225--232. Springer Nature, Cham, Switzerland (Apr 2026).
+  \doi{10.1007/978-3-032-21321-1_32}
+
+\bibitem{chawla2002smote}
+Chawla, N.V., Bowyer, K.W., Hall, L.O., Kegelmeyer, W.P.: {SMOTE}: Synthetic
+  minority over-sampling technique. Journal of Artificial Intelligence Research
+   \textbf{16},  321--357 (2002)
+
+\bibitem{chen2023writing}
+Chen, H., Han, Z., Li, Z., Han, Y.: A writing style embedding based on
+  contrastive learning for multi-author writing style analysis. In: {CLEF}
+  (Working Notes). pp. 2562--2567 (2023)
+
+\bibitem{10.1093/llc/fqq001}
+Jockers, M.L., Witten, D.M.: A comparative study of machine learning methods
+  for authorship attribution. Literary and Linguistic Computing
+  \textbf{25}(2),  215--223 (2010). \doi{10.1093/llc/fqq001},
+  \url{https://doi.org/10.1093/llc/fqq001}
+
+\bibitem{kucukkaya2023arc}
+Kucukkaya, I.E., Sahin, U., Toraman, C.: Arc-nlp at pan 2023:
+  transition-focused natural language inference for writing style detection.
+  arXiv preprint arXiv:2307.14913  (2023)
+
+\bibitem{mohammad2013crowdsourcing}
+Mohammad, S.M., Turney, P.D.: Crowdsourcing a word-emotion association lexicon.
+  Computational Intelligence  \textbf{29}(3),  436--465 (2013)
+
+\bibitem{ochab2025styloch}
+Ochab, J.K., Matias, M., Boba, T., Walkowiak, T.: Styloch at pan:
+  Gradient-boosted trees with frequency-based stylometric features. arXiv
+  preprint arXiv:2507.12064  (2025)
+
+\bibitem{ramnial2015authorship}
+Ramnial, H., Panchoo, S., Pudaruth, S.: Authorship attribution using stylometry
+  and machine learning techniques. In: Intelligent Systems Technologies and
+  Applications: Volume~1, pp. 113--125. Springer (2015)
+
+\bibitem{rios2022detection}
+R{\'\i}os-Toledo, G., Posadas-Dur{\'a}n, J.P.F., Sidorov, G.,
+  Castro-S{\'a}nchez, N.A.: Detection of changes in literary writing style
+  using {N}-grams as style markers and supervised machine learning. PLoS ONE
+  \textbf{17}(7),  e0267590 (2022)
+
+\bibitem{rohra2025sentence}
+Rohra, H., Shah, N., Sonawane, S.: Sentence-level style change detection with
+  {RoBERTa} for multi-author writing style analysis. In: Working Notes of CLEF
+  2025 -- Conference and Labs of the Evaluation Forum. CEUR Workshop
+  Proceedings, vol.~4038, pp. 3898--3903. CEUR-WS.org (2025)
+
+\bibitem{schmidt2025team}
+Schmidt, G., R{\"o}misch, J., Halchynska, M., Gorovaia, S., Yamshchikov, I.P.:
+  Team" better\_call\_claude": Style change detection using a sequential
+  sentence pair classifier. arXiv preprint arXiv:2508.00675  (2025)
+
+\bibitem{singh2021writing}
+Singh, R., Weerasinghe, J., Greenstadt, R.: Writing style change detection on
+  multi-author documents. In: Clef (working notes). pp. 2137--2145 (2021)
+
+\bibitem{6722273}
+Stuart, L.M., Tazhibayeva, S., Wagoner, A.R., Taylor, J.M.: On identifying
+  authors with style. In: 2013 {IEEE} International Conference on Systems, Man,
+  and Cybernetics. pp. 3048--3053 (2013). \doi{10.1109/SMC.2013.520}
+
+\bibitem{zamir2024stylometry}
+Zamir, M.T., Ayub, M.A., Gul, A., Ahmad, N., Ahmad, K.: Stylometry analysis of
+  multi-authored documents for authorship and author style change detection.
+  arXiv preprint arXiv:2401.06752  (2024)
+
+\bibitem{zangerle2020overview}
+Zangerle, E., Mayerl, M., Potthast, M., Stein, B.: Overview of the style change
+  detection task at {PAN} 2020. {CLEF} (Working Notes)  \textbf{93} (2020)
+
+\bibitem{zangerle2025overview}
+Zangerle, E., Mayerl, M., Potthast, M., Stein, B.: Overview of the multi-author
+  writing style analysis task at {PAN} 2025. In: Working Notes of CLEF 2025 --
+  Conference and Labs of the Evaluation Forum. CEUR Workshop Proceedings,
+  vol.~4038. CEUR-WS.org (2025)
+
+\bibitem{zangerle:2026}
+Zangerle, E., Mayerl, M., Potthast, M., Stein, B.: {Overview of the
+  Multi-Author Writing Style Analysis Task at PAN 2026}. In:
+  Barr{\'o}n-Cede{\~n}o, A., de~Herrera, A.G.S., Salido, E.S., MacAvaney, S.,
+  Stru{\ss}, J.M. (eds.) Working Notes of CLEF 2026 -- Conference and Labs of
+  the Evaluation Forum. CEUR Workshop Proceedings, CEUR-WS.org (Sep 2026)
+
+\bibitem{zangerle_2026_19068843}
+Zangerle, E., Mayerl, M., Stein, B., Potthast, M.: Pan26 multi-author writing
+  style analysis (Mar 2026). \doi{10.5281/zenodo.19068843},
+  \url{https://doi.org/10.5281/zenodo.19068843}
+
+\end{thebibliography}

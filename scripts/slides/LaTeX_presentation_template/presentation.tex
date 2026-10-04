@@ -1,0 +1,287 @@
+\documentclass[compress,aspectratio=169]{beamer}
+
+\usepackage{ujslide}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage[export]{adjustbox}
+\usepackage{booktabs,amsmath}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc}
+
+\title{Sentence Style Detection for Author Switches}
+\subtitle{Author Switch Detection}
+\author{Tshephang Phuti-A-Nkutu Matlala}
+\institute[Academy of Computer Science and Software Engineering]{Academy of Computer Science and Software Engineering \\ University of Johannesburg\\ South Africa}
+\date{}
+\logo{\includegraphics[height=15mm]{ujlogo.pdf}}
+
+\begin{document}
+
+\begin{frame}
+    \titlepage
+\end{frame}
+
+\section*{Outline}
+\begin{frame}[allowframebreaks]
+    \tableofcontents
+\end{frame}
+
+%% ---------------- Problem statement ----------------
+\section[Problem]{Problem Statement}
+\begin{frame}{Problem statement}
+\textbf{Formally:} for a document $D=\{S_1,\ldots,S_n\}$, predict for every adjacent pair $(S_i,S_{i+1})$:
+\[
+y_i =
+\begin{cases}
+0 & S_i \text{ and } S_{i+1} \text{ share an author,}\\
+1 & \text{an author switch occurs between them.}
+\end{cases}
+\]
+\end{frame}
+
+%% ---------------- (1) Representation & features ----------------
+\section[Features]{Representation \& Features}
+\begin{frame}{Task and data}
+\medskip
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\begin{itemize}
+\item PAN 2026 data
+\item Easy: topic changes with author. Medium/hard: topic is controlled
+\item 2,439,074 training pairs, about 14.3\% of them are switches
+\end{itemize}
+\end{column}
+\begin{column}{0.5\textwidth}
+\centering\small
+\begin{tabular}{lrr}
+\toprule
+& \textbf{Pairs} & \textbf{Switch rate}\\
+\midrule
+Easy & 549,804 & 30.5\%\\
+Medium & 1,299,324 & 4.4\%\\
+Hard & 589,946 & 20.9\%\\
+\bottomrule
+\end{tabular}
+\end{column}
+\end{columns}
+\medskip
+Switch rates differ sharply by difficulty (easy, medium and hard).
+\end{frame}
+
+\begin{frame}{Pipeline: from raw text to a prediction}
+\centering
+\begin{tikzpicture}[
+  box/.style={draw=ujpurple,fill=ujorange!12,rounded corners=4pt,minimum height=0.85cm,minimum width=2.45cm,align=center,font=\footnotesize},
+  arr/.style={-{Stealth},thick,color=ujorange}, node distance=0.5cm]
+\node[box] (a) {Sentence pair\\$(S_i,S_{i+1})$};
+\node[box,right=of a] (b) {Sentence features\\9 scalars + 256 hashed\\trigram buckets};
+\node[box,right=of b] (c) {Standardise\\(training stats)};
+\node[box,right=of c] (d) {Pair vector $p_i$ (11 values):\\9 $|\Delta z|$ + trigram cosine\\+ overall distance $d_i$};
+\node[box,below=0.8cm of b] (e) {Classifier\\tree / logistic / NN};
+\node[box,right=of e] (f) {Threshold\\(tuned on validation)};
+\node[box,right=of f,fill=ujpurple!12] (g) {Prediction};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d);
+\draw[arr] (d.south) -- ++(0,-0.4) -| ($(e.north)+(0,0.0)$) ;
+\draw[arr] (e)--(f); \draw[arr] (f)--(g);
+\end{tikzpicture}
+\medskip
+
+\begin{itemize}\itemsep0.3em
+\item Written in Java with \emph{no external ML library}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Nine style features used during training}
+\centering\small
+\begin{tabular}{cll}
+\toprule
+\textbf{Idx} & \textbf{Feature} & \textbf{What it captures}\\
+\midrule
+0 & Word length ($\log(1+\#\text{words})$) & Fluency and sentence length\\
+1 & Character length & Same, in characters\\
+2 & Frequent word ratio (top 10k English) & Habit in the use of function words\\
+3 & Punctuation density & Structural and regular writing habits\\
+4 & Digit ratio & Formatting habit (digit share)\\
+5 & Uppercase ratio & Capitalisation habit\\
+6 & Average word length & Vocabulary register\\
+7 & Mean TF-IDF & Vocabulary rarity\\
+8 & Emotion score (NRC lexicon) & Affective tone\\
+\bottomrule
+\end{tabular}
+\medskip
+
+\raggedright\footnotesize Scalar features are z-scored with training statistics.
+\end{frame}
+
+\begin{frame}{Hashed character trigrams and the pair vector}
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+\textbf{Hashing trick}
+\begin{itemize}\itemsep0.3em
+\item Each trigram $\rightarrow$ one of $B=256$ buckets
+\item Advantage: fixed length, no corpus required
+\item Cost: there are collisions, and the buckets mean nothing to us
+\end{itemize}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{Pair feature vector: compressed version (11 values)}
+\begin{itemize}\itemsep0.3em
+\item 9 absolute differences $|z_i^{(k)}-z_{i+1}^{(k)}|$
+\item Trigram cosine (kept readable)
+\item Overall distance $d_i$
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+%% ---------------- (2) Models ----------------
+\section[Models]{Models Overview}
+\begin{frame}{Models overview}
+\small
+\begin{tabular}{p{2.7cm}p{6.5cm}p{3.5cm}}
+\toprule
+\textbf{Model} & \textbf{Setup} & \textbf{Interpretability}\\
+\midrule
+Decision tree & Gini, depth 5, min 20 to split, 5 per leaf, class weighted, threshold 0.5 & Readable rules based on feature decisions\\[0.4em]
+Logistic regression & Batch gradient descent, 10,000 iterations, lr 0.6, class weighted & Readable weights, one per feature\\[0.4em]
+Neural network & 11--128--64--32--16--8--1, ReLU, mini batch SGD (lr 0.001, batch 64), L2 0.01, dropout 0.2, early stopping & Black box, hard to interpret\\
+\bottomrule
+\end{tabular}
+\medskip
+
+\begin{itemize}\itemsep0.3em
+\item Class weights from inverse frequency (same author 0.583, switch 3.505)
+\item Thresholds tuned on the validation half to maximise F1 (logistic 0.68, NN 0.66)
+\item The validation half is used for tuning, the second half is used for final testing
+\end{itemize}
+\end{frame}
+
+%% ---------------- (3) Results ----------------
+\section[Results]{Results and Interpretation}
+\begin{frame}{Results: overall held out test (259,653 pairs)}
+\centering\small
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Rec.} & \textbf{F1} & \textbf{Bal.\ Acc.}\\
+\midrule
+Decision tree & 0.850 & 0.462 & \textbf{0.410} & 0.435 & 0.666\\
+Logistic regression & 0.869 & 0.546 & 0.392 & \textbf{0.456} & \textbf{0.669}\\
+Neural network & \textbf{0.871} & \textbf{0.562} & 0.368 & 0.445 & 0.661\\
+\bottomrule
+\end{tabular}
+\bigskip
+
+\raggedright
+\begin{itemize}\itemsep0.4em
+\item The three models are nearly tied (the neural network is not better than the linear model)
+\item The majority baseline already scores \textbf{0.859} accuracy, so accuracy alone is barely informative
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Results depend almost entirely on difficulty}
+\centering\small
+F1 / balanced accuracy on the held out test split (full training run)\\[0.5em]
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Easy} & \textbf{Medium} & \textbf{Hard}\\
+\midrule
+Decision tree & 0.872 / 0.897 & 0.067 / 0.503 & 0.057 / 0.502\\
+Logistic regression & 0.869 / 0.890 & 0.078 / 0.515 & 0.040 / 0.503\\
+Neural network & 0.848 / 0.873 & 0.058 / 0.503 & 0.027 / 0.499\\
+\bottomrule
+\end{tabular}
+\bigskip
+
+\raggedright
+\begin{itemize}\itemsep0.4em
+\item \textbf{Easy:} strong, but author changes coincide with topic changes
+\item \textbf{Medium/hard:} balanced accuracy $\approx 0.50$, i.e.\ chance
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Interpretation: what the models actually used}
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\textbf{Decision tree}
+\begin{itemize}\itemsep0.3em
+\item Root: character length difference (idx 1)
+\item Then average word length difference (idx 6)
+\item Trigram cosine appears at nearly every level
+\item Only 5 of 11 features used at all
+\end{itemize}
+\end{column}
+\begin{column}{0.5\textwidth}
+\textbf{Logistic regression weights}
+\begin{itemize}\itemsep0.3em
+\item Trigram cosine: $-4.71$ (more similar $\Rightarrow$ fewer switches)
+\item Character length difference: $+0.99$
+\item Overall distance: $+0.72$
+\item Frequent word and punctuation differences $\approx 0$
+\end{itemize}
+\end{column}
+\end{columns}
+\bigskip
+\begin{block}{}
+The nine scalars are mostly surface statistics.
+\end{block}
+\end{frame}
+
+%% ---------------- (4) Still working on ----------------
+\section[Future]{Future Work}
+\begin{frame}{What I am still working on (Future Work)}
+\begin{itemize}\itemsep0.7em
+\item \textbf{Feature ablation and importance}
+\item \textbf{Restoring n-gram compressed information}
+\item \textbf{Topic robust features:} such as POS tagging usage, readability, vocabulary richness
+\item \textbf{Stronger models:} such as random forest, gradient boosting
+\end{itemize}
+\end{frame}
+
+%% ---------------- (5) Upcoming: number of authors ----------------
+\section[Authors]{Estimating the Number of Authors}
+\begin{frame}{Author count: from switches to segments}
+Detected switches cut a document into segments. Example with 2 detected switches:
+\bigskip
+
+\centering
+\begin{tikzpicture}[
+  seg/.style={draw=ujpurple,fill=ujorange!12,minimum height=1.1cm,align=center,font=\small},
+  cut/.style={draw=ujorange,very thick,dashed}]
+\node[seg,minimum width=3cm] (s1) {sentences 1--3};
+\node[seg,minimum width=4.4cm,right=0pt of s1] (s2) {sentences 4--7};
+\node[seg,minimum width=5cm,right=0pt of s2] (s3) {sentences 8--end};
+\draw[cut] ($(s1.north east)+(0,0.3)$) -- ($(s1.south east)+(0,-0.3)$);
+\draw[cut] ($(s2.north east)+(0,0.3)$) -- ($(s2.south east)+(0,-0.3)$);
+\node[below=0.5cm of s1,font=\footnotesize,text=ujorange] {switch 1};
+\node[below=0.5cm of s2,font=\footnotesize,text=ujorange,xshift=2.2cm] {switch 2};
+\node[above=0.35cm of s2,font=\bfseries] {3 segments $\Rightarrow$ at most 3 authors};
+\end{tikzpicture}
+\bigskip
+
+\raggedright
+\begin{itemize}\itemsep0.4em
+\item The number of segments gives an \textbf{upper bound} on the number of authors
+\item How tight that bound is depends on how accurate the switch detector is
+\end{itemize}
+\end{frame}
+
+%% ---------------- Conclusion ----------------
+\section[Conclusion]{Conclusion}
+\begin{frame}{Summary}
+\begin{itemize}\itemsep0.7em
+\item Author Switch Detection system: 9 features + hashed trigram profile and distance; 11-value pair feature vector
+\item The results are baseline F1 (0.435--0.456)
+\end{itemize}
+\end{frame}
+
+%% ---------------- Questions ----------------
+\section[Questions]{Questions}
+\begin{frame}{}
+\begin{center}
+    \huge{Thank You}\\
+    \vspace*{1cm}
+    \huge{Questions?}
+\end{center}
+\end{frame}
+
+\end{document}
