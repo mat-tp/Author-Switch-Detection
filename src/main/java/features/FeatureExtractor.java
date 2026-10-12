@@ -7,6 +7,29 @@ import java.io.Serializable;
 import java.io.FileNotFoundException;
 import java.util.*;
 
+/**
+ * Features extraction for sentences and sentence pairs, used by the
+ * 
+ * Most of the features are based on the paper as cited below:
+ * Reference:
+ * 
+ * @article{article,
+ *                   author = {Oloo, Vivian and Wanzare, Lilian and Otieno,
+ *                   Calvins},
+ *                   year = {2022},
+ *                   month = {11},
+ *                   pages = {295-313},
+ *                   title = {An Optimal Feature Set for Stylometry-based Style
+ *                   Change detection at Document and Sentence Level},
+ *                   journal = {International Journal of Scientific Research in
+ *                   Computer Science, Engineering and Information Technology},
+ *                   doi = {10.32628/CSEIT228617}
+ *                   }
+ * 
+ *                   Stanford CoreNLP: To be considered for higher POS Tagging
+ *                   accuracy, but it is slow and requires a lot of memory.
+ * 
+ */
 public class FeatureExtractor implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -44,14 +67,49 @@ public class FeatureExtractor implements Serializable {
 
     // bucket for holding hashed values for sentences
     private static final int NGRAM_BUCKETS = 256;
-    // POS ratio slots start right after the emotion feature (slot 8).
-    // TODO: compute the POS ratios in getFeatures and write them to
-    // scalarFeatures[POS_OFFSET + i]; until then these slots stay 0.
-    public static final int POS_OFFSET = 9; // first slot after emotion
-    public static final int POS_COUNT = 4; // e.g. noun, verb, adjective, adverb ratios
+
+    /*
+     * Scalar feature layout. This is the SINGLE source of truth: getFeatures,
+     * FeatureGroup (ablation), PairFeatureUtil (names) and the web pages all read
+     * it, so a new feature is added here (+ one line in FeatureGroup) and nothing else.
+     */
+    public static final String[] SCALAR_NAMES = {
+            "log_word_count", // 0
+            "log_char_count", // 1
+            "frequent_word_ratio", // 2
+            "punctuation_density", // 3
+            "digit_ratio", // 4
+            "uppercase_ratio", // 5
+            "avg_word_length", // 6
+            "mean_tfidf", // 7
+            "emotion_score", // 8
+            "type_token_ratio", // 9
+            "punctuation_variety", // 10
+            "flesch_reading_ease", // 11
+            "gunning_fog", // 12
+            "flesch_kincaid_grade" // 13
+    };
+
+    // readability slots (FRES, GFI, FKGL)
+    public static final int READABILITY_OFFSET = 11;
+    public static final int READABILITY_COUNT = 3;
+
+    // POS ratios are NOT implemented (no tagger yet). The slots used to be written
+    // as constant zeros, which only diluted the pair distance and gave a meaningless
+    // ablation row, so they are not part of the vector until getFeatures fills them.
+    // To add them: append names to SCALAR_NAMES, raise POS_COUNT, fill the slots.
+    public static final int POS_OFFSET = READABILITY_OFFSET + READABILITY_COUNT;
+    public static final int POS_COUNT = 0;
 
     // number of scalar features before the n-gram block
     public static final int SCALAR_COUNT = POS_OFFSET + POS_COUNT;
+
+    static {
+        if (SCALAR_NAMES.length != SCALAR_COUNT) {
+            throw new ExceptionInInitializerError(
+                    "SCALAR_NAMES has " + SCALAR_NAMES.length + " entries but SCALAR_COUNT is " + SCALAR_COUNT);
+        }
+    }
 
     // number of features in the compressed pair vector (see
     // SentencePair.getPairFeatures)
@@ -349,6 +407,129 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
+     * Calculates the Flesch Reading Ease Score (FRES).
+     *
+     * Formula:
+     * FRES = 206.835 - (1.015 * ASL) - (84.6 * ASW)
+     *
+     * ASL = Average sentence length in words.
+     * ASW = Average syllables per word.
+     *
+     * @param sentence sentence to calculate the score for
+     * @return Flesch Reading Ease score
+     */
+    private double calcFleschReadingEaseScore(String sentence) {
+
+        if (sentence == null || sentence.isBlank()) {
+            return 0.0;
+        }
+
+        String[] words = TextUtils.tokenize(sentence)
+                .toArray(new String[0]);
+
+        int totalWords = words.length;
+        int totalSyllables = 0;
+
+        for (String word : words) {
+            totalSyllables += TextUtils.countSyllables(word);
+        }
+
+        if (totalWords == 0) {
+            return 0.0;
+        }
+
+        // Processing one sentence at a time
+        double averageWordsPerSentence = totalWords;
+        double averageSyllablesPerWord = (double) totalSyllables / totalWords;
+
+        return 206.835
+                - (1.015 * averageWordsPerSentence)
+                - (84.6 * averageSyllablesPerWord);
+    }
+
+    /**
+     * Gunning Fog Index (GFI) is a readability test that estimates the years of
+     * formal education needed to understand a text on the first reading.
+     * 
+     * Formula:
+     * Fog = 0.4 * (ASL + 100 * (ComplexWords / TotalWords))
+     *
+     * ASL = Average sentence length in words.
+     * Complex words = Words containing more than three syllables.
+     *
+     * 
+     * Reference:
+     * https://www.researchgate.net/publication/392521274_Readability_Analysis_with_the_Gunning_Fog_Index_Guilford_College_Writing_Handbook
+     * 
+     * @param sentence
+     * @return
+     */
+    private double calcGunningFogIndex(String sentence) {
+
+        if (sentence == null || sentence.isBlank()) {
+            return 0.0;
+        }
+
+        String[] words = TextUtils.tokenize(sentence).toArray(new String[0]);
+
+        int totalWords = words.length;
+        int complexWords = 0;
+
+        for (String word : words) {
+
+            // complex words are defined as words with 3 or more syllables
+            // there are exclusions to be considered. except for proper nouns, familiar
+            // jargon and compound words.
+            if (TextUtils.countSyllables(word) >= 3) {
+                complexWords++;
+            }
+        }
+
+        if (totalWords == 0) {
+            return 0.0;
+        }
+
+        double averageWordsPerSentence = totalWords; // Since we are processing one sentence at a time
+        double percentageComplexWords = ((double) complexWords / totalWords) * 100;
+
+        return 0.4 * (averageWordsPerSentence + percentageComplexWords);
+    }
+
+    /**
+     * Flench Kincaid Grade Level (FKGL) is a readability test that indicates the
+     * U.S. school grade level required to comprehend a text.
+     * 
+     * Refence: https://arxiv.org/html/2508.19221v1
+     * 
+     * @param sentence
+     * @return
+     */
+    private double calcFleschKincaidGradeLevel(String sentence) {
+
+        if (sentence == null || sentence.isBlank()) {
+            return 0.0;
+        }
+
+        String[] words = TextUtils.tokenize(sentence).toArray(new String[0]);
+
+        int totalWords = words.length;
+        int totalSyllables = 0;
+
+        for (String word : words) {
+            totalSyllables += TextUtils.countSyllables(word);
+        }
+
+        if (totalWords == 0) {
+            return 0.0;
+        }
+
+        double averageWordsPerSentence = totalWords; // Since we are processing one sentence at a time
+        double averageSyllablesPerWord = (double) totalSyllables / totalWords;
+
+        return (0.39 * averageWordsPerSentence) + (11.8 * averageSyllablesPerWord) - 15.59;
+    }
+
+    /**
      * Getting the features from each sentence
      * This defines the features used in the project All together
      * 
@@ -365,8 +546,12 @@ public class FeatureExtractor implements Serializable {
      *         features[6]: average word length (letters per word)
      *         features[7]: mean TF-IDF score
      *         features[8]: emotion score (length-normalised)
-     *         features[POS_OFFSET..POS_OFFSET+POS_COUNT-1]: POS ratios (not yet
-     *         computed)
+     *         features[9]: type-token ratio
+     *         features[10]: punctuation variety
+     *         features[11]: Flesch Reading Ease
+     *         features[12]: Gunning Fog Index
+     *         features[13]: Flesch-Kincaid Grade Level
+     *         (names: SCALAR_NAMES; POS ratios are not implemented)
      *         features[SCALAR_COUNT..SCALAR_COUNT+255] - hashed character 3-gram
      *         frequencies (256 buckets)
      *         - This is likely to create sparse vector especially for short
@@ -390,7 +575,7 @@ public class FeatureExtractor implements Serializable {
             tokens = sentence.split("\\s+");
         }
 
-        double[] scalarFeatures = new double[SCALAR_COUNT]; // 9 features now...
+        double[] scalarFeatures = new double[SCALAR_COUNT];
 
         int nWords = tokens.length;
         int nChars = sentence.length();
@@ -473,8 +658,11 @@ public class FeatureExtractor implements Serializable {
         scalarFeatures[6] = letterCount / wordDensity; // average word length
         scalarFeatures[7] = calcTFIDFScore(sentence); // mean TF-IDF
         scalarFeatures[8] = averageEmotionScore / wordDensity; // emotion
-        // scalarFeatures[9] = calcTypeTokenRatio(sentence); // type-token ratio
-        // scalarFeatures[10] = punctuationVariety(sentence); // punctuation variety
+        scalarFeatures[9] = calcTypeTokenRatio(sentence); // type-token ratio
+        scalarFeatures[10] = punctuationVariety(sentence); // punctuation variety
+        scalarFeatures[READABILITY_OFFSET] = calcFleschReadingEaseScore(sentence); // 11
+        scalarFeatures[READABILITY_OFFSET + 1] = calcGunningFogIndex(sentence); // 12
+        scalarFeatures[READABILITY_OFFSET + 2] = calcFleschKincaidGradeLevel(sentence); // 13
 
         double[] nGramFeatures = computeCharNGrams(sentence, NGRAM_BUCKETS);
         double[] features = new double[scalarFeatures.length + nGramFeatures.length];
@@ -660,6 +848,18 @@ public class FeatureExtractor implements Serializable {
             if (scalarStds[i] < 1e-12) {
                 scalarStds[i] = 1.0;
             }
+        }
+    }
+
+    /**
+     * Fails with a readable message when this extractor was fitted (and saved with
+     * a model) for a different number of scalar features than the code now produces,
+     * e.g. a model trained before a feature was added. Such a model has to be retrained.
+     */
+    public void requireCompatible() {
+        if (scalarMeans != null && scalarMeans.length != SCALAR_COUNT) {
+            throw new IllegalStateException("model was trained with " + scalarMeans.length
+                    + " scalar features but the code now has " + SCALAR_COUNT + " - retrain the model");
         }
     }
 

@@ -97,7 +97,7 @@ public class RealTrainer {
 
         /*
          * A simple, justifiable tree:
-         * - only the 11 compressed pair features. Each one has a name and a meaning
+         * - only the compressed pair features. Each one has a name and a meaning
          *   ("how different are the two sentences in average word length"), so a
          *   split can be read and defended. The 256 n-gram bucket differences can't be.
          * - a shallow tree (at most depth 5 = at most 5 questions per decision).
@@ -168,7 +168,7 @@ public class RealTrainer {
         step(status, "Saving model...", 95);
         saveModel("decisionTree.ser", bestFullFeatures, bestTree, bestExtractor);
 
-        outcome.chosenConfig = "compressed (11 named pair) features, max depth=" + bestDepth
+        outcome.chosenConfig = "compressed (" + PairFeatureUtil.PAIR_FEATURE_NAMES.length + " named pair) features, max depth=" + bestDepth
                 + " (shallowest depth within " + simplicityTolerance + " validation F1 of the best)";
         outcome.threshold = 0.5; // a tree has no probability threshold to tune
         outcome.difficultyBreakdownCsv = difficultyBreakdown;

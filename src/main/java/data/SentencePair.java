@@ -113,10 +113,10 @@ public class SentencePair {
      * compressing the N-Gram portion.
      *
      * The first (scalarCount + 2) features are the same as in getPairFeatures:
-     * [0..8] absolute z-score differences, [9] n-gram cosine similarity,
-     * [10] overall z-score distance
+     * [0..S-1] absolute z-score differences, [S] n-gram cosine similarity,
+     * [S+1] overall z-score distance
      * Followed by the absolute difference of every hashed character 3-gram bucket:
-     * [11..266] (256 buckets)
+     * [S+2..] (256 buckets)
      *
      * @param features1 features of the 1st sentence
      * @param features2 features of the 2nd sentence

@@ -64,4 +64,35 @@ public class TextUtils {
         return false;
     }
 
+    /**
+     * Helper method to return syllable count of a word. This is a naive
+     * implementation and may not be accurate for all words.
+     * 
+     * @param word the word to count syllables for
+     * @return the number of syllables in the word
+     */
+    public static int countSyllables(String word) {
+        // This is a very basic implementation and may not be accurate for all words
+        int count = 0;
+        boolean vowel = false;
+
+        for (int i = 0; i < word.length(); i++) {
+            char c = Character.toLowerCase(word.charAt(i));
+            boolean isVowel = isVowel(c);
+
+            // Count a syllable if the current character is a vowel and the previous
+            // character was not a vowel
+            // This is not the most approach but works for some simple cases.
+            if (isVowel && !vowel) {
+                count++;
+            }
+            vowel = isVowel;
+        }
+
+        return count;
+    }
+
+    private static boolean isVowel(char c) {
+        return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
+    }
 }

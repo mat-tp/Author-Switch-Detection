@@ -86,7 +86,7 @@ public class DecisionTreeClassifier implements AuthorSwitchClassifier {
             return List.of();
         }
 
-        String[] names = new String[model.fullFeatures() ? 11 + 256 : 11];
+        String[] names = new String[model.fullFeatures() ? PairFeatureUtil.PAIR_FEATURE_NAMES.length + 256 : PairFeatureUtil.PAIR_FEATURE_NAMES.length];
         for (int i = 0; i < names.length; i++) {
             names[i] = PairFeatureUtil.pairFeatureName(i);
         }

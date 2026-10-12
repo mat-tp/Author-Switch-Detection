@@ -8,7 +8,7 @@ import java.util.List;
  * whether an author switch happened between them.
  *
  * Every model turns the pair of raw sentences into the SAME feature vector it
- * was trained on (see PairFeatureUtil): a sentence becomes 9 scalar features
+ * was trained on (see PairFeatureUtil): a sentence becomes its scalar features
  * (+ 256 hashed character-trigram buckets), a pair becomes the absolute
  * z-score differences of the scalars, the n-gram cosine similarity and the
  * overall (RMS) z-score distance.

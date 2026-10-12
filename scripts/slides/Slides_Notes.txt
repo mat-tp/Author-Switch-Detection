@@ -1,0 +1,5 @@
+In the Upcoming Based on how accurate we are,We can estimate a maximum number of Authors to equate to the maximum number of segments.
+
+That is to accurately estimate the authors we will just train clustering algorithms on the different segments: 
+
+[ sentences 1–3 ] | [ sentences 4–7 ] | [ sentences 8–end ]   → 3 segments

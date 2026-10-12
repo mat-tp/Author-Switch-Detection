@@ -60,7 +60,7 @@
                 <span class="section-sub">(all <span th:text="${result.nSentences}"></span> sentences)</span></h2>
 
             <div class="metric-note">
-                <strong>Per sentence:</strong> 9 scalar features, shown as extracted (<em>raw</em>) and as a
+                <strong>Per sentence:</strong> <span th:text="${#arrays.length(result.sentenceFeatureNames)}">14</span> scalar features, shown as extracted (<em>raw</em>) and as a
                 <em>z-score</em> <code>(value − training mean) / training std</code>, which is what the model actually sees.
                 The 256 hashed character-trigram buckets are not listed one by one; they enter the pair vector through
                 the <code>ngram_cosine_similarity</code>.<br>
@@ -93,7 +93,7 @@
                     </div>
 
                     <div class="pair-card" th:if="${s.toNext != null}">
-                        <div class="pair-title" th:text="'Pair #' + ${s.index} + ' → #' + (${s.index} + 1) + '  ·  difference vector (11 features)'"></div>
+                        <div class="pair-title" th:text="'Pair #' + ${s.index} + ' → #' + (${s.index} + 1) + '  ·  difference vector (' + ${#arrays.length(result.pairFeatureNames)} + ' features)'"></div>
                         <table class="feat-table">
                             <tbody>
                                 <tr th:each="name, it : ${result.pairFeatureNames}">

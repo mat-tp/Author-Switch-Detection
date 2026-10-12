@@ -21,7 +21,13 @@ public enum FeatureGroup {
     WORD_LENGTH("Average word length", slots(6)),
     TFIDF("Mean TF-IDF", slots(7)),
     EMOTION("NRC emotion", slots(8)),
-    POS("POS ratios", range(FeatureExtractor.POS_OFFSET, FeatureExtractor.POS_COUNT)),
+    LEXICAL_DIVERSITY("Type-token ratio", slots(9)),
+    PUNCTUATION_VARIETY("Punctuation variety", slots(10)),
+    FLESCH_READING_EASE("Flesch Reading Ease", slots(11)),
+    GUNNING_FOG("Gunning Fog Index", slots(12)),
+    FLESCH_KINCAID("Flesch-Kincaid Grade Level", slots(13)),
+    // POS ratios are not implemented yet (see FeatureExtractor.POS_COUNT); once they are:
+    // POS("POS ratios", range(FeatureExtractor.POS_OFFSET, FeatureExtractor.POS_COUNT)),
     CHAR_NGRAM("Char 3-gram profile (cosine + buckets)", slots());
 
     private final String description;

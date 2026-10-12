@@ -10,14 +10,14 @@ import java.util.Map;
  * Every value here comes straight out of FeatureExtractor.getFeatures(...),
  * the same call the trained models are built on — nothing is reimplemented
  * or invented on this side. sentencePosition is the only field that isn't
- * one of hyProjectTP's 9 scalar features; it's just bookkeeping for pair
+ * one of the scalar features (FeatureExtractor.SCALAR_NAMES); it's just bookkeeping for pair
  * ordering on the Inspect/Explore pages.
  */
 public class SentenceFeatures {
 
     // shared, corpus-less extractor: getFeatures(...) doesn't need a training
     // corpus to run, only fitScaler/TF-IDF-over-a-corpus does, and we're not
-    // standardizing or training here, just reading the raw 9 scalars for
+    // standardizing or training here, just reading the raw scalars for
     // display. Lazily built once and reused for every sentence.
     private static volatile FeatureExtractor sharedExtractor;
 
@@ -38,16 +38,8 @@ public class SentenceFeatures {
 
     public final String rawText;
 
-    // hyProjectTP's 9 scalar features, in FeatureExtractor.getFeatures order
-    public final double logWordCount;
-    public final double logCharCount;
-    public final double frequentWordRatio;
-    public final double punctuationDensity;
-    public final double digitRatio;
-    public final double uppercaseRatio;
-    public final double avgWordLength;
-    public final double meanTfIdf;
-    public final double meanEmotionScore;
+    // every scalar feature, name -> rounded value, in FeatureExtractor.SCALAR_NAMES order
+    private final Map<String, Double> scalars = new LinkedHashMap<>();
 
     // not a feature, just the sentence's position in the document (0..1)
     public final double sentencePosition;
@@ -55,17 +47,10 @@ public class SentenceFeatures {
     public SentenceFeatures(String sentence, int index, int totalSentences) {
         this.rawText = sentence;
 
-        double[] scalars = extractor().getFeatures(sentence);
-
-        this.logWordCount = round(scalars[0]);
-        this.logCharCount = round(scalars[1]);
-        this.frequentWordRatio = round(scalars[2]);
-        this.punctuationDensity = round(scalars[3]);
-        this.digitRatio = round(scalars[4]);
-        this.uppercaseRatio = round(scalars[5]);
-        this.avgWordLength = round(scalars[6]);
-        this.meanTfIdf = round(scalars[7]);
-        this.meanEmotionScore = round(scalars[8]);
+        double[] values = extractor().getFeatures(sentence);
+        for (int i = 0; i < FeatureExtractor.SCALAR_COUNT; i++) {
+            scalars.put(FeatureExtractor.SCALAR_NAMES[i], round(values[i]));
+        }
 
         this.sentencePosition = totalSentences <= 1 ? 0.0 : round(index / (double) (totalSentences - 1));
     }
@@ -74,26 +59,19 @@ public class SentenceFeatures {
         return Math.round(v * 1000.0) / 1000.0;
     }
 
-    /** Flat vector, used both for display and Euclidean style-distance. */
+    /** Flat vector (scalar features, then the sentence position), used for display. */
     public double[] toVector() {
-        return new double[]{
-                logWordCount, logCharCount, frequentWordRatio, punctuationDensity,
-                digitRatio, uppercaseRatio, avgWordLength, meanTfIdf, meanEmotionScore,
-                sentencePosition
-        };
+        double[] vector = new double[scalars.size() + 1];
+        int i = 0;
+        for (double v : scalars.values()) {
+            vector[i++] = v;
+        }
+        vector[i] = sentencePosition;
+        return vector;
     }
 
     public Map<String, Double> toNamedMap() {
-        Map<String, Double> m = new LinkedHashMap<>();
-        m.put("log_word_count", logWordCount);
-        m.put("log_char_count", logCharCount);
-        m.put("frequent_word_ratio", frequentWordRatio);
-        m.put("punctuation_density", punctuationDensity);
-        m.put("digit_ratio", digitRatio);
-        m.put("uppercase_ratio", uppercaseRatio);
-        m.put("avg_word_length", avgWordLength);
-        m.put("mean_tfidf", meanTfIdf);
-        m.put("mean_emotion_score", meanEmotionScore);
+        Map<String, Double> m = new LinkedHashMap<>(scalars);
         m.put("sentence_position", sentencePosition);
         return m;
     }

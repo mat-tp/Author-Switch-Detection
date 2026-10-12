@@ -1,0 +1,22 @@
+Feature Slide
+
+ Feature Importance of feature G is calc as:
+    Importance(G)= F1 all − F1 without G
+
+1. **Gunning Fog Index (`gunning_fog`).** 
+The Gunning Fog Index is included as a structural 
+readability feature to capture variation in sentence 
+length and the proportion of complex, polysyllabic 
+words. These characteristics may differ systematically 
+across authors and therefore provide potentially useful 
+signals for writing-style change detection. Previous 
+research on stylometric feature selection and 
+writing-style-change detection has considered readability 
+measures as features for characterising structural 
+differences in text. However, this broader evidence 
+does not establish that the Gunning Fog Index is among 
+the most effective individual features for the PAN MAWSA 
+task. Its contribution will therefore be assessed 
+empirically within the proposed feature set.
+
+2. 

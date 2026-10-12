@@ -84,15 +84,15 @@ public class Main {
     // TODO: parameter learning
 
     /*
-     * false: 21 features per pair (19 z-score differences, n-gram cosine, overall
-     * distance)
-     * true: all features (the 21 above + 256 n-gram bucket differences), not
+     * false: COMPRESSED_PAIR_COUNT features per pair (one z-score difference per scalar,
+     * n-gram cosine, overall distance)
+     * true: all features (the compressed ones + 256 n-gram bucket differences), not
      * compressed. A saved model has to be trained again after changing this.
      */
     // false = only the 21 compressed features (much less memory and much faster
     // model training). The 256 n-gram bucket differences are left out, but the
-    // 19 scalars (9 base incl. TF-IDF + 10 POS) and the n-gram cosine are still calculated, since
-    // those are part of the 21. Set to true again to bring the 277 back.
+    // scalars (FeatureExtractor.SCALAR_NAMES) and the n-gram cosine are still calculated, since
+    // those are part of the compressed vector. Set to true again to bring the 256 buckets back.
     static final boolean USE_FULL_FEATURES = false;
 
     // The file the model is saved to (and loaded from for the inference), in the

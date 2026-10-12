@@ -1,40 +1,54 @@
-# Build output and compiled binaries
+# ---------- Build output ----------
 target/
 out/
 *.class
 *.jar
 *.war
+# the Maven wrapper needs its jar
+!.mvn/wrapper/maven-wrapper.jar
 
-# Ignore compiled build outputs & target directories
-target/
-out/
-*.class
-*.jar
-*.war
-
-# Ignore IDE & Editor configurations
+# ---------- IDE / editor ----------
 .idea/
 *.iml
+*.iws
+*.ipr
 .vscode/
 .settings/
 .classpath
 .project
+.factorypath
+.apt_generated/
+.sts4-cache/
+.springBeans
+nbproject/
 
-# Ignore PDF, Zip, and Text dataset files
-*.pdf
-*.zip
-*.txt
-
-# Environment and OS temporary files
+# ---------- OS / temp ----------
 .DS_Store
 Thumbs.db
 *.log
 
-# Large Datasets & Models (Keep repositories lightweight)
+# ---------- Datasets (large, licensed; see README Setup) ----------
 dataset/*
-dataset/mawsa26-pan-zenodo-DATA/*
-data/models/*
-*.zip
 
-# Ignore data model artifacts
+# ---------- Generated data ----------
+# trained models (regenerate with ./scripts/build.sh)
 data/models/
+# user accounts (contain password hashes)
+data/users.json
+# ablation output; remove this line if you want to commit results
+data/ablation/
+
+# ---------- LaTeX build artifacts (keep .tex, .bib and final PDFs) ----------
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.nav
+*.snm
+*.out
+*.toc
+*.synctex.gz
+
+# ---------- Archives ----------
+*.zip

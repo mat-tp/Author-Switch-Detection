@@ -1,0 +1,4 @@
+
+1. Slide for each Machine learning model (3+) - High Level
+2. Automate ablation study for important features and Parameters And Report them
+3. I am working on a classification task

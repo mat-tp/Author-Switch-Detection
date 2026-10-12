@@ -81,7 +81,7 @@ public class InspectService {
             }
             view.nGramBucketsUsed = used;
 
-            // the 11 pair features between this sentence and the next one
+            // the compressed pair features between this sentence and the next one
             // (label -1 = unknown, same trick PairFeatureUtil uses)
             if (i < n - 1) {
                 SentencePair pair = new SentencePair(sentences.get(i), sentences.get(i + 1), -1);

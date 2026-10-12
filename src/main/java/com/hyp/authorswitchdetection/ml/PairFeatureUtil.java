@@ -10,11 +10,11 @@ import features.FeatureExtractor;
 
 /**
  * Turning a pair of raw sentences into the SAME feature vector a given model was trained on:
- * full (267 features) or compressed (11 features), since
+ * full (COMPRESSED_PAIR_COUNT + 256 features) or compressed (COMPRESSED_PAIR_COUNT features), since
  * RealTrainer's grid search can pick either one per model.
  *
  * This mirrors, step by step, what Main.getPairFeatures do:
- * 1. get the 9 scalar (+ 256 n-gram bucket, full only) features of each sentence
+ * 1. get the scalar (+ 256 n-gram bucket, full only) features of each sentence
  * 2. standardize the scalar part (z-score, fitted on the training data)
  * 3. build the pair vector: absolute scalar differences + n-gram cosine +
  * overall distance (+ absolute n-gram bucket differences, full only)
@@ -30,26 +30,28 @@ public final class PairFeatureUtil {
         // utility class, not meant to be instantiated
     }
 
-    /** The 9 per-sentence scalar features, in FeatureExtractor.getFeatures order. */
-    public static final String[] SENTENCE_FEATURE_NAMES = {
-            "log_word_count", "log_char_count", "frequent_word_ratio",
-            "punctuation_density", "digit_ratio", "uppercase_ratio",
-            "avg_word_length", "mean_tfidf", "emotion_score"
-    };
+    /** The per-sentence scalar features, in FeatureExtractor.getFeatures order. */
+    public static final String[] SENTENCE_FEATURE_NAMES = FeatureExtractor.SCALAR_NAMES.clone();
 
     /**
-     * The 11 compressed pair features, in SentencePair.getPairFeatures order:
-     * 9 absolute z-score differences, the n-gram cosine similarity, and the
-     * overall (RMS) z-score distance.
+     * The compressed pair features, in SentencePair.getPairFeatures order:
+     * one absolute z-score difference per scalar feature, the n-gram cosine
+     * similarity, and the overall (RMS) z-score distance.
      */
-    public static final String[] PAIR_FEATURE_NAMES = {
-            "diff_log_word_count", "diff_log_char_count", "diff_frequent_word_ratio",
-            "diff_punctuation_density", "diff_digit_ratio", "diff_uppercase_ratio",
-            "diff_avg_word_length", "diff_mean_tfidf", "diff_emotion_score",
-            "ngram_cosine_similarity", "overall_distance"
-    };
+    public static final String[] PAIR_FEATURE_NAMES = buildPairFeatureNames();
 
-    /** Name of pair feature i; the full (267) vector continues with the n-gram bucket differences. */
+    private static String[] buildPairFeatureNames() {
+        int s = FeatureExtractor.SCALAR_COUNT;
+        String[] names = new String[s + 2];
+        for (int i = 0; i < s; i++) {
+            names[i] = "diff_" + FeatureExtractor.SCALAR_NAMES[i];
+        }
+        names[s] = "ngram_cosine_similarity";
+        names[s + 1] = "overall_distance";
+        return names;
+    }
+
+    /** Name of pair feature i; the full vector continues with the n-gram bucket differences. */
     public static String pairFeatureName(int i) {
         return i < PAIR_FEATURE_NAMES.length ? PAIR_FEATURE_NAMES[i]
                 : "diff_ngram_bucket_" + (i - PAIR_FEATURE_NAMES.length);
@@ -62,8 +64,7 @@ public final class PairFeatureUtil {
      * @param extractor    the (already fitted) extractor loaded alongside the model
      * @param sentence1    first sentence
      * @param sentence2    second sentence
-     * @param fullFeatures true = 267 features (what the original bundled models were
-     *                     trained on), false = 11 features (only possible for a model
+     * @param fullFeatures true = all features (scalars + 256 n-gram buckets), false = compressed (only possible for a model
      *                     RealTrainer's grid search picked "compressed" for)
      * @return the standardized pair feature vector
      */

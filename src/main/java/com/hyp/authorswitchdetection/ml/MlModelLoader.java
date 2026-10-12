@@ -79,6 +79,7 @@ public class MlModelLoader {
 
             DecisionTree tree = (DecisionTree) ois.readObject();
             FeatureExtractor extractor = (FeatureExtractor) ois.readObject();
+            extractor.requireCompatible();
             boolean fullFeatures = readFullFeaturesFlag(ois);
 
             // drop the questions whose answer never changes the label (lossless, same predictions)
@@ -106,6 +107,7 @@ public class MlModelLoader {
             double[] weightsBias = (double[]) ois.readObject();
             double threshold = ois.readDouble();
             FeatureExtractor extractor = (FeatureExtractor) ois.readObject();
+            extractor.requireCompatible();
             boolean fullFeatures = readFullFeaturesFlag(ois);
 
             log.info("Loaded logistic regression model from {}", describeSource(fileName));
@@ -129,6 +131,7 @@ public class MlModelLoader {
             NeuralNetwork network = (NeuralNetwork) ois.readObject();
             double threshold = ois.readDouble();
             FeatureExtractor extractor = (FeatureExtractor) ois.readObject();
+            extractor.requireCompatible();
             boolean fullFeatures = readFullFeaturesFlag(ois);
 
             log.info("Loaded neural network model from {}", describeSource(fileName));
