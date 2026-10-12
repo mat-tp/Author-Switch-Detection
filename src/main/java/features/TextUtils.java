@@ -5,6 +5,15 @@ import java.util.List;
 
 public class TextUtils {
 
+    // TODO: Consider both uppercase and lowercase letters when cleaning a sentence
+
+    /**
+     * Cleans a sentence by removing all non-alphabetic characters and converting to
+     * lowercase.
+     *
+     * @param sentence the string to clean
+     * @return the cleaned string
+     */
     public static String cleanSentence(String sentence) {
         if (sentence == null) {
             return "";
@@ -14,7 +23,12 @@ public class TextUtils {
 
     }
 
-    // tokenising a string
+    /**
+     * Tokenises a string into a list of words.
+     *
+     * @param sentence the string to tokenise
+     * @return a list of tokens
+     */
     public static List<String> tokenize(String sentence) {
 
         List<String> tokens = new ArrayList<>();

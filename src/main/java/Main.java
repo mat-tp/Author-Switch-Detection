@@ -46,16 +46,18 @@ import com.hyp.authorswitchdetection.model.ModelMetricsIO;
 public class Main {
 
     // Path to the MAWSA dataset.
-    private static final String DATASET_PATH = "dataset/mawsa26-pan-zenodo-DATA/";
+    static final String DATASET_PATH = "dataset/mawsa26-pan-zenodo-DATA/";
 
     /*
         Every difficulty level is combined for training/validation/test and the final evaluation is also broken down
         per difficulty (see evaluateByDifficulty) and not just reported combined.
 
      */
-    private static final String[] DIFFICULTIES = { "easy", "medium", "hard" };
+    static final String[] DIFFICULTIES = { "easy", "medium", "hard" };
 
     // The models that can be trained
+    // (the constants / helpers below are package-private so Ablation.java reuses
+    // exactly the same data pipeline and baseline settings as Main)
     private static final String DECISION_TREE = "tree";
     private static final String LOGISTIC_REGRESSION = "logistic";
     private static final String NEURAL_NETWORK = "neural";
@@ -77,21 +79,21 @@ public class Main {
      * true: the FULL validation set is used for validation and no test is done,
      * for when the real testing dataset is available.
      */
-    private static final boolean USE_FULL_VALIDATION = false;
+    static final boolean USE_FULL_VALIDATION = false;
 
     // TODO: parameter learning
 
     /*
-     * false: 11 features per pair (9 z-score differences, n-gram cosine, overall
+     * false: 21 features per pair (19 z-score differences, n-gram cosine, overall
      * distance)
-     * true: all features (the 11 above + 256 n-gram bucket differences), not
+     * true: all features (the 21 above + 256 n-gram bucket differences), not
      * compressed. A saved model has to be trained again after changing this.
      */
-    // false = only the 11 compressed features (much less memory and much faster
+    // false = only the 21 compressed features (much less memory and much faster
     // model training). The 256 n-gram bucket differences are left out, but the
-    // 9 scalars (incl. TF-IDF) and the n-gram cosine are still calculated, since
-    // those are part of the 11. Set to true again to bring the 267 back.
-    private static final boolean USE_FULL_FEATURES = false;
+    // 19 scalars (9 base incl. TF-IDF + 10 POS) and the n-gram cosine are still calculated, since
+    // those are part of the 21. Set to true again to bring the 277 back.
+    static final boolean USE_FULL_FEATURES = false;
 
     // The file the model is saved to (and loaded from for the inference), in the
     // SAME folder + on-disk format the Spring web app's MlModelLoader reads from
@@ -110,7 +112,7 @@ public class Main {
     // java -Dsubset=50000 -cp out Main tree
     // Default = no limit: ALL the pairs are used (the memory guard below still
     // shrinks everything if the heap is too small). Give more heap with -Xmx.
-    private static final int SUBSET_SIZE = Integer.getInteger("subset", Integer.MAX_VALUE);
+    static final int SUBSET_SIZE = Integer.getInteger("subset", Integer.MAX_VALUE);
 
     /*
      * The feature matrices (training + validation + test) may use at most this
@@ -127,31 +129,31 @@ public class Main {
     private static final int VERIFY_SAMPLE = 200;
 
     // Logistic Regression settings
-    private static final int N_ITERATIONS = 10000;
-    private static final double LEARNING_RATE = 0.6;
-    private static final boolean USE_CLASS_WEIGHTS = true;
+    static final int N_ITERATIONS = 10000;
+    static final double LEARNING_RATE = 0.6;
+    static final boolean USE_CLASS_WEIGHTS = true;
 
     /*
      * Neural Network settings (input -> hidden layers with ReLU -> 1 sigmoid
      * output). The validation data is used for early stopping, so the network
      * stops when the validation loss no longer improves.
      */
-    private static final int[] NN_HIDDEN_SIZES = { 128, 64, 32, 16, 8 };
-    private static final int NN_MAX_EPOCHS = 60;
-    private static final double NN_LEARNING_RATE = 0.001; // learning rate of the plain mini batch gradient descent (no Adam)
-    private static final int NN_BATCH_SIZE = 64;
-    private static final double NN_L2_LAMBDA = 1e-2; // 0 = no regularisation
-    private static final double NN_DROPOUT = 0.2; // chance a hidden neuron is switched off, 0 = no dropout
-    private static final double NN_FEATURE_CLIP = 5.0; // features are clipped to [-5, 5], 0 = no clipping
-    private static final int NN_PATIENCE = 8; // 0 = no early stopping
-    private static final boolean NN_USE_CLASS_WEIGHTS = true;
+    static final int[] NN_HIDDEN_SIZES = { 128, 64, 32, 16, 8 };
+    static final int NN_MAX_EPOCHS = 60;
+    static final double NN_LEARNING_RATE = 0.001; // learning rate of the plain mini batch gradient descent (no Adam)
+    static final int NN_BATCH_SIZE = 64;
+    static final double NN_L2_LAMBDA = 1e-2; // 0 = no regularisation
+    static final double NN_DROPOUT = 0.2; // chance a hidden neuron is switched off, 0 = no dropout
+    static final double NN_FEATURE_CLIP = 5.0; // features are clipped to [-5, 5], 0 = no clipping
+    static final int NN_PATIENCE = 8; // 0 = no early stopping
+    static final boolean NN_USE_CLASS_WEIGHTS = true;
 
     // Decision Tree settings: maxDepth, minSamplesSplit, minSamplesLeaf,
     // minImpurityDecrease
-    private static final int TREE_MAX_DEPTH = 5;
-    private static final int TREE_MIN_SAMPLES_SPLIT = 20;
-    private static final int TREE_MIN_SAMPLES_LEAF = 5;
-    private static final double TREE_MIN_IMPURITY_DECREASE = 0.0;
+    static final int TREE_MAX_DEPTH = 5;
+    static final int TREE_MIN_SAMPLES_SPLIT = 20;
+    static final int TREE_MIN_SAMPLES_LEAF = 5;
+    static final double TREE_MIN_IMPURITY_DECREASE = 0.0;
 
     public static void main(String[] args) {
 
@@ -871,7 +873,7 @@ public class Main {
     /**
      * Builds the feature matrix of pairs, using the z-score parameters of the extractor (fitted on the training data).
      */
-    private static double[][] buildFeatureMatrix(List<SentencePair> pairs, FeatureExtractor extractor) {
+    static double[][] buildFeatureMatrix(List<SentencePair> pairs, FeatureExtractor extractor) {
 
         double[][] matrix = new double[pairs.size()][];
 
@@ -882,7 +884,7 @@ public class Main {
         return matrix;
     }
 
-    private static int[] getTruthValues(List<SentencePair> pairs) {
+    static int[] getTruthValues(List<SentencePair> pairs) {
 
         int[] truthValues = new int[pairs.size()];
 
@@ -900,7 +902,7 @@ public class Main {
      * new list, so the pairs that were not chosen (and the shuffled list) can be
      * garbage collected instead of staying alive behind a subList view.
      */
-    private static List<SentencePair> takeSubset(List<SentencePair> pairs, int limit) {
+    static List<SentencePair> takeSubset(List<SentencePair> pairs, int limit) {
 
         if (pairs.size() <= limit) {
             return pairs;
@@ -919,9 +921,9 @@ public class Main {
      *
      * @param nTrain           training pairs wanted
      * @param nEvaluation      validation + test pairs wanted
-     * @param pairFeatureCount numbers in one pair's feature vector (267 or 11)
+     * @param pairFeatureCount numbers in one pair's feature vector (277 or 21)
      */
-    private static double fractionThatFitsInMemory(long nTrain, long nEvaluation, int pairFeatureCount) {
+    static double fractionThatFitsInMemory(long nTrain, long nEvaluation, int pairFeatureCount) {
 
         long rowBytes = 8L * pairFeatureCount + 16; // the doubles + the array header
 
@@ -952,8 +954,8 @@ public class Main {
     /**
      * Feature matrix of the TRAINING pairs, the same numbers as
      * buildFeatureMatrix would give, but without ever holding the full feature
-     * vectors of all the sentences (2 x 265 numbers per pair) next to the pair
-     * matrix (267 numbers per pair), which more than doubled the memory needed.
+     * vectors of all the sentences (2 x 275 numbers per pair) next to the pair
+     * matrix (277 numbers per pair), which more than doubled the memory needed.
      */
     static double[][] buildTrainingMatrix(List<SentencePair> pairs, FeatureExtractor extractor) {
 
@@ -977,7 +979,7 @@ public class Main {
             trainingScalars.add(scalars2[i]);
 
             // The n-gram part of a pair vector does not use the z-scores standardising.
-            // The z-score slots ([0..8] and [10]) are filled in below.
+            // The z-score slots ([0..18] and [20]) are filled in below.
             featureMatrix[i] = makePairFeatures(pairs.get(i), features1, features2);
 
             if ((i + 1) % 10000 == 0 || i == n - 1) {
@@ -1043,7 +1045,7 @@ public class Main {
     }
 
     /** The rows of all the matrices in one array (the rows are shared, not copied). */
-    private static double[][] joinMatrices(java.util.Collection<double[][]> matrices) {
+    static double[][] joinMatrices(java.util.Collection<double[][]> matrices) {
 
         int total = 0;
         for (double[][] matrix : matrices) {
@@ -1060,7 +1062,7 @@ public class Main {
         return joined;
     }
 
-    private static int[] joinTruth(java.util.Collection<int[]> truths) {
+    static int[] joinTruth(java.util.Collection<int[]> truths) {
 
         int total = 0;
         for (int[] truth : truths) {

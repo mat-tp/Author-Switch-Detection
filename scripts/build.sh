@@ -4,11 +4,7 @@ clear
 
 # Tshephang Matlala
 # HYP TRAINING ML MODELS
-# Trains and compares all the models (Decision Tree, Logistic Regression,
-# Neural Network) using ONLY javac/java — no Maven, no internet access and
-# no IDE needed. The Spring Boot web app (mvnw) is a separate, optional
-# thing; this script is for training/testing the models straight from the
-# command line.
+# Trains and compares all the models 
 #
 # Usage:
 #   ./scripts/build.sh              runs all the models (train + validation + test)

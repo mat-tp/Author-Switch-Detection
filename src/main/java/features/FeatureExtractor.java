@@ -10,8 +10,10 @@ import java.util.*;
 public class FeatureExtractor implements Serializable {
 
     private static final long serialVersionUID = 1L;
-    // Paths for the files used to get the features (Function words And Word-Emotion
-    // which is associated with SentimentAnalysis)
+    /*
+     * Paths for the files used to get the features (Function words And Word-Emotion
+     * which is associated with SentimentAnalysis)
+     */
     String frequentWordsFilePath = "dataset/word-processing/frequentWords/google-10000-english.txt";
     String sentimentAnalysisFilePath = "dataset/word-processing/NRC-Emotion-Lexicon/NRC-Emotion-Lexicon/NRC-Emotion-Lexicon-Wordlevel-v0.92.txt";
 
@@ -37,7 +39,9 @@ public class FeatureExtractor implements Serializable {
      * - — em dash
      * - … ellipsis character
      */
-    private static final char[] PUNCTUATION = { '!', ';', ',', '.', '?', '\'', '"' };
+    private static final char[] PUNCTUATION = { '!', ';', ',', '.', '?', '\'', '"', ':', '(', ')', '-', '—', '–', '…',
+            '[', ']', '{', '}' };
+
     // bucket for holding hashed values for sentences
     private static final int NGRAM_BUCKETS = 256;
     // number of scalar features before the n-gram block
@@ -116,7 +120,7 @@ public class FeatureExtractor implements Serializable {
         Collections.sort(this.vocabulary);
     }
 
-    /*
+    /**
      * Extracting function words based on the external function words list
      */
 
@@ -287,6 +291,58 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
+     * Type-token ratio (TTR) is a measure of lexical diversity in a text.
+     * It is calculated as the ratio of the number of unique words (types)
+     * to the total number of words (tokens) in a given text.
+     * 
+     * 
+     * @param sentence
+     * @return 1.0 means all words are unique, 0.0 means all words are the same
+     */
+    private double calcTypeTokenRatio(String sentence) {
+
+        // checking the repetion of words in a sentence.
+        List<String> words = TextUtils.tokenize(sentence);
+        double typeTokenRatio = 0.0;
+        if (words.isEmpty()) {
+            return typeTokenRatio; // Return 0 if the sentence has no words
+        } else {
+            // getting the unique words in a sentence and dividing by the total number of
+            // words
+            typeTokenRatio = (double) new HashSet<>(words).size() / words.size();
+        }
+
+        return typeTokenRatio;
+
+    }
+
+    /**
+     * Calculating the punctuation variety in a sentence.
+     * 
+     * @param sentence
+     * @return
+     */
+    private double punctuationVariety(String sentence) {
+
+        if (sentence == null || sentence.isEmpty()) {
+            return 0.0;
+        }
+
+        Set<Character> uniquePunctuation = new HashSet<>();
+
+        for (int i = 0; i < sentence.length(); i++) {
+            char ch = sentence.charAt(i);
+
+            if (TextUtils.isCharInChars(ch, PUNCTUATION)) {
+                uniquePunctuation.add(ch);
+            }
+        }
+
+        // fraction of the punctuation marks of interest used in this sentence (0 to 1)
+        return (double) uniquePunctuation.size() / PUNCTUATION.length;
+    }
+
+    /**
      * Getting the features from each sentence
      * This defines the features used in the project All together
      * 
@@ -408,6 +464,8 @@ public class FeatureExtractor implements Serializable {
         scalarFeatures[6] = letterCount / wordDensity; // average word length
         scalarFeatures[7] = calcTFIDFScore(sentence); // mean TF-IDF
         scalarFeatures[8] = averageEmotionScore / wordDensity; // emotion
+        // scalarFeatures[9] = calcTypeTokenRatio(sentence); // type-token ratio
+        // scalarFeatures[10] = punctuationVariety(sentence); // punctuation variety
 
         double[] nGramFeatures = computeCharNGrams(sentence, NGRAM_BUCKETS);
         double[] features = new double[scalarFeatures.length + nGramFeatures.length];

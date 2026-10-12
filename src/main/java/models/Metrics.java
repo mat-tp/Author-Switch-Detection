@@ -26,6 +26,35 @@ public class Metrics {
      */
     public static double[] evaluate(int[] predictions, int[] truthValues) {
 
+        double[] result = evaluateQuietly(predictions, truthValues);
+        int[] counts = countOutcomes(predictions, truthValues);
+        int truePositives = counts[0];
+        int falsePositives = counts[1];
+        int trueNegatives = counts[2];
+        int falseNegatives = counts[3];
+        int total = predictions.length;
+        int positives = truePositives + falseNegatives;
+        double baseline = (double) Math.max(positives, total - positives) / total;
+
+        System.out.println("Confusion matrix (rows = truth, columns = predicted):");
+        System.out.println("             pred 0   pred 1");
+        System.out.println("  truth 0  " + String.format("%7d  %7d", trueNegatives, falsePositives));
+        System.out.println("  truth 1  " + String.format("%7d  %7d", falseNegatives, truePositives));
+        System.out.println(String.format(
+                "Accuracy=%.4f (majority baseline=%.4f) | Balanced Accuracy=%.4f | Precision=%.4f | Recall=%.4f | F1=%.4f",
+                result[0], baseline, result[4], result[1], result[2], result[3]));
+
+        return result;
+    }
+
+    /**
+     * Same numbers as evaluate, WITHOUT printing (used by the automated ablation
+     * study, which evaluates hundreds of runs).
+     *
+     * @return {accuracy, precision, recall, f1, balancedAccuracy}
+     */
+    public static double[] evaluateQuietly(int[] predictions, int[] truthValues) {
+
         if (predictions == null || truthValues == null || predictions.length == 0
                 || predictions.length != truthValues.length) {
             throw new IllegalArgumentException("predictions and truthValues must be non-empty and the same length");
@@ -49,17 +78,6 @@ public class Metrics {
 
         double specificity = negatives == 0 ? 0.0 : (double) trueNegatives / negatives; // TNR
         double balancedAccuracy = (recall + specificity) / 2.0;
-
-        // accuracy of a "model" that always predicts the bigger class
-        double baseline = (double) Math.max(positives, total - positives) / total;
-
-        System.out.println("Confusion matrix (rows = truth, columns = predicted):");
-        System.out.println("             pred 0   pred 1");
-        System.out.println("  truth 0  " + String.format("%7d  %7d", trueNegatives, falsePositives));
-        System.out.println("  truth 1  " + String.format("%7d  %7d", falseNegatives, truePositives));
-        System.out.println(String.format(
-                "Accuracy=%.4f (majority baseline=%.4f) | Balanced Accuracy=%.4f | Precision=%.4f | Recall=%.4f | F1=%.4f",
-                accuracy, baseline, balancedAccuracy, precision, recall, f1));
 
         return new double[] { accuracy, precision, recall, f1, balancedAccuracy };
     }

@@ -86,3 +86,22 @@ Class weighting
 
 Early stopping based on validation loss
 EOF
+
+## Ablation Study (automated)
+
+`scripts/ablation.sh` runs the whole study and writes the results to `data/ablation/`.
+
+- **Feature-group ablation:** every model is trained on all features, then once with each feature group
+  removed (`Importance(G) = F1_all - F1_without_G`), and once with each group on its own. Groups are defined
+  in `features/FeatureGroup.java`; a new feature group needs ONE line there and is then included automatically.
+- **Parameter ablation:** one hyperparameter at a time (decision tree depth / min samples / impurity /
+  class weights, logistic regression learning rate / iterations, neural network layers / L2 / dropout /
+  learning rate / batch size / clipping / patience) plus a decision-tree depth x min-leaf grid.
+- Parameters are ranked by validation F1; the test split is reported but never used to pick a setting.
+- Output: `ablation_results.csv` (one row per run), `ablation_report.md`, `ablation_tables.tex`.
+
+```bash
+./scripts/ablation.sh                                         # everything
+JAVA_OPTS="-Dseeds=42,123,456 -Xmx24g" ./scripts/ablation.sh  # mean ± std over 3 seeds
+JAVA_OPTS="-Dquick=true -Dsubset=50000" ./scripts/ablation.sh # fast trial
+```

@@ -429,6 +429,10 @@ INPUT ./ujlogo.pdf
 INPUT ./ujlogo.pdf
 INPUT ./ujlogo.pdf
 INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/cm/cmss10.tfm
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/cm/cmss8.tfm
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/cm/cmss8.tfm
@@ -456,6 +460,14 @@ INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/symbols/msam10.tfm
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/symbols/msbm10.tfm
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/sansmathaccent/mathkerncmssi9.tfm
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/cm/cmssi10.tfm
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
+INPUT ./ujlogo.pdf
 INPUT ./ujlogo.pdf
 INPUT ./ujlogo.pdf
 INPUT ./ujlogo.pdf
