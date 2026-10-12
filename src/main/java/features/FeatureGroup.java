@@ -45,12 +45,18 @@ public enum FeatureGroup {
         return slots;
     }
 
-    /** Scalar feature slots (indices below FeatureExtractor.SCALAR_COUNT) in this group. */
+    /**
+     * Scalar feature slots (indices below FeatureExtractor.SCALAR_COUNT) in this
+     * group.
+     */
     public int[] scalarSlots() {
         return scalarSlots.clone();
     }
 
-    /** True for the group that also owns the n-gram cosine and the bucket differences. */
+    /**
+     * True for the group that also owns the n-gram cosine and the bucket
+     * differences.
+     */
     public boolean ownsNGramColumns() {
         return this == CHAR_NGRAM;
     }

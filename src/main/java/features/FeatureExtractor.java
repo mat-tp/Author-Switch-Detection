@@ -44,8 +44,14 @@ public class FeatureExtractor implements Serializable {
 
     // bucket for holding hashed values for sentences
     private static final int NGRAM_BUCKETS = 256;
+    // POS ratio slots start right after the emotion feature (slot 8).
+    // TODO: compute the POS ratios in getFeatures and write them to
+    // scalarFeatures[POS_OFFSET + i]; until then these slots stay 0.
+    public static final int POS_OFFSET = 9; // first slot after emotion
+    public static final int POS_COUNT = 4; // e.g. noun, verb, adjective, adverb ratios
+
     // number of scalar features before the n-gram block
-    public static final int SCALAR_COUNT = 9;
+    public static final int SCALAR_COUNT = POS_OFFSET + POS_COUNT;
 
     // number of features in the compressed pair vector (see
     // SentencePair.getPairFeatures)
@@ -359,7 +365,10 @@ public class FeatureExtractor implements Serializable {
      *         features[6]: average word length (letters per word)
      *         features[7]: mean TF-IDF score
      *         features[8]: emotion score (length-normalised)
-     *         features[9..264] - hashed character 3-gram frequencies (256 buckets)
+     *         features[POS_OFFSET..POS_OFFSET+POS_COUNT-1]: POS ratios (not yet
+     *         computed)
+     *         features[SCALAR_COUNT..SCALAR_COUNT+255] - hashed character 3-gram
+     *         frequencies (256 buckets)
      *         - This is likely to create sparse vector especially for short
      *         sentences,
      *         that is why I will be handling it separately.
