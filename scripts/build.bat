@@ -51,9 +51,14 @@ if /I "%MODEL%"=="all" goto MODEL_VALID
 if /I "%MODEL%"=="tree" goto MODEL_VALID
 if /I "%MODEL%"=="logistic" goto MODEL_VALID
 if /I "%MODEL%"=="neural" goto MODEL_VALID
+if /I "%MODEL%"=="retrieval" goto MODEL_VALID
+if /I "%MODEL%"=="difficulty" goto MODEL_VALID
+if /I "%MODEL%"=="calibrate" goto MODEL_VALID
+if /I "%MODEL%"=="evaluate" goto MODEL_VALID
+if /I "%MODEL%"=="check" goto MODEL_VALID
 
 echo ERROR: Unknown model "%MODEL%"
-echo Use: all ^| tree ^| logistic ^| neural ^| clean
+echo Use: all ^| tree ^| logistic ^| neural ^| retrieval ^| difficulty ^| calibrate ^| evaluate ^| check ^| clean
 goto ERROR
 
 :MODEL_VALID
@@ -162,7 +167,7 @@ REM ============================================================
 echo          ^> Compiling Java Source Code
 echo.
 
-javac -sourcepath "%SRC%" -d "%OUT%" "%SRC%\Main.java"
+javac -encoding UTF-8 -sourcepath "%SRC%" -d "%OUT%" "%SRC%\Main.java" "%SRC%\RetrievalMain.java" "%SRC%\SelfCheck.java" "%SRC%\TiraRunner.java" "%SRC%\DifficultyMain.java"
 
 if errorlevel 1 (
     echo ERROR: Compilation failed.
@@ -180,7 +185,19 @@ REM ============================================================
 echo          ^> Running ML Model(s): %MODEL%
 echo.
 
-java %JAVA_OPTS% -cp "%OUT%" Main "%MODEL%"
+if /I "%MODEL%"=="retrieval" (
+    java %JAVA_OPTS% -cp "%OUT%" RetrievalMain
+) else if /I "%MODEL%"=="difficulty" (
+    java %JAVA_OPTS% -cp "%OUT%" DifficultyMain train
+) else if /I "%MODEL%"=="calibrate" (
+    java %JAVA_OPTS% -cp "%OUT%" DifficultyMain calibrate
+) else if /I "%MODEL%"=="evaluate" (
+    java %JAVA_OPTS% -cp "%OUT%" DifficultyMain evaluate
+) else if /I "%MODEL%"=="check" (
+    java %JAVA_OPTS% -cp "%OUT%" SelfCheck
+) else (
+    java %JAVA_OPTS% -cp "%OUT%" Main "%MODEL%"
+)
 
 if errorlevel 1 (
     echo ERROR: Program execution failed.

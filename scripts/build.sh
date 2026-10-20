@@ -9,6 +9,11 @@ clear
 # Usage:
 #   ./scripts/build.sh              runs all the models (train + validation + test)
 #   ./scripts/build.sh tree         runs only one: tree | logistic | neural
+#   ./scripts/build.sh retrieval    trains the retrieval (embedding) model: RetrievalMain
+#   ./scripts/build.sh difficulty   trains the difficulty detector (data/models/difficulty.ser): DifficultyMain train
+#   ./scripts/build.sh calibrate    threshold of every level for every saved model (NAME.ser.levels), no retraining
+#   ./scripts/build.sh evaluate     pooled threshold vs true level vs DETECTED level, on the held-out half
+#   ./scripts/build.sh check        runs SelfCheck (gradient checks, metrics, features, save/load)
 #   ./scripts/build.sh clean        deletes out/ and exits (nothing is run)
 #
 # Version for Linux / macOS systems
@@ -47,10 +52,10 @@ if [ "$MODEL" = "clean" ]; then
 fi
 
 case "$MODEL" in
-    all|tree|logistic|neural) ;;
+    all|tree|logistic|neural|retrieval|difficulty|calibrate|evaluate|check) ;;
     *)
         echo
-        echo "ERROR: Unknown model '$MODEL' (use: all | tree | logistic | neural | clean)"
+        echo "ERROR: Unknown model '$MODEL' (use: all | tree | logistic | neural | retrieval | difficulty | calibrate | evaluate | check | clean)"
         exit 1
         ;;
 esac
@@ -146,10 +151,10 @@ fi
 echo "          > Compiling Java Source Code"
 echo
 
-javac \
+javac -encoding UTF-8 \
     -sourcepath "$SRC" \
     -d "$OUT" \
-    "$SRC/Main.java"
+    "$SRC/Main.java" "$SRC/RetrievalMain.java" "$SRC/SelfCheck.java" "$SRC/TiraRunner.java" "$SRC/DifficultyMain.java"
 
 if [ $? -ne 0 ]; then
     echo
@@ -163,10 +168,10 @@ echo
 
 # RUN
 # Main trains on ALL 3 difficulty splits combined (same as RealTrainer, used by
-# the Spring web app's Train page), with the 11 compressed features (see
-# USE_FULL_FEATURES in Main.java). It tunes the decision threshold on one half
+# the Spring web app's Train page), with the feature settings of
+# features/FeatureConfig.java (-Dchar.n=1,2,3 -Dchar.buckets=512 -Dcasing=lower ...). It tunes the decision threshold on one half
 # of the validation split, and reports final numbers (accuracy, precision,
-# recall, F1, balanced accuracy) on the OTHER half (the held-out "test" half),
+# recall, F1, balanced accuracy, MACRO-F1) on the OTHER half (the held-out "test" half),
 # which the model never saw during training or thresholding. The trained model
 # is saved under data/models/, and a row is appended to data/model-metrics.json
 # - the SAME files the Spring Boot web app (./mvnw spring-boot:run) reads for
@@ -179,7 +184,14 @@ echo
 echo "          > Running ML Model(s): $MODEL"
 echo
 
-java $JAVA_OPTS -cp "$OUT" Main "$MODEL"
+case "$MODEL" in
+    retrieval) java $JAVA_OPTS -cp "$OUT" RetrievalMain ;;
+    difficulty) java $JAVA_OPTS -cp "$OUT" DifficultyMain train ;;
+    calibrate)  java $JAVA_OPTS -cp "$OUT" DifficultyMain calibrate ;;
+    evaluate)   java $JAVA_OPTS -cp "$OUT" DifficultyMain evaluate ;;
+    check)     java $JAVA_OPTS -cp "$OUT" SelfCheck ;;
+    *)         java $JAVA_OPTS -cp "$OUT" Main "$MODEL" ;;
+esac
 
 if [ $? -ne 0 ]; then
     echo

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Ablation')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Ablation Study</h1>
+        <p class="subtitle">
+            What each feature group, each setting and each model choice contributes. The tables are read from the
+            <code>.csv</code> files that <code>Ablation</code> (the three pair models) and <code>RetrievalMain ablate</code>
+            (the retrieval model) write into <code th:text="${dir}"></code>.
+        </p>
+    </div>
+
+    <div class="alert alert-warning" th:if="${error}" th:text="${error}"></div>
+
+    <div class="card" th:if="${files.isEmpty()}">
+        <p class="muted">No ablation results yet. Run <code>./scripts/ablation.sh</code> (features, params, pipeline) or
+            <code>./scripts/ablation.sh retrieval</code>; the files appear here while the study runs.</p>
+    </div>
+
+    <div class="card" th:if="${!files.isEmpty()}">
+        <form method="get" th:action="@{/ablation}">
+            <div class="form-group">
+                <label for="file">Result file</label>
+                <select id="file" name="file" onchange="this.form.submit()">
+                    <option th:each="f : ${files}" th:value="${f}" th:text="${f}" th:selected="${f == selected}"></option>
+                </select>
+            </div>
+        </form>
+        <p class="muted small" th:if="${hasReport}">A written report with the importance ranking and the best settings is next to the
+            csv files: <code>ablation_report.md</code>.</p>
+        <p class="muted small">Columns that end in <code>f1</code> are macro-F1 unless a column says otherwise. Choose a setting by the
+            <em>validation</em> columns, quote the test columns. Measured on the data in <code>app.dataset.root</code>
+            when the study was run: if that was a stand-in dataset, the numbers say nothing about PAN.</p>
+    </div>
+
+    <div class="card mt" th:if="${header != null}">
+        <div class="card-label" th:text="${selected} + ' · ' + ${rows.size()} + ' rows'"></div>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead><tr><th th:each="h : ${header}" th:text="${h}"></th></tr></thead>
+                <tbody>
+                <tr th:each="r : ${rows}">
+                    <td th:each="c : ${r}" th:text="${c}"></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

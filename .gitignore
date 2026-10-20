@@ -52,3 +52,5 @@ data/ablation/
 
 # ---------- Archives ----------
 *.zip
+
+data/model-metrics.json

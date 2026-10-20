@@ -8,6 +8,7 @@ package models;
 
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.stream.IntStream;
 
 public class DecisionTree implements Serializable {
 
@@ -26,6 +27,8 @@ public class DecisionTree implements Serializable {
         Node left;
         Node right;
         int predictedClassLabel; // majority class
+        double probability; // leaf: class-weighted share of class 1 (change) among its training samples
+        double weight; // leaf: total class weight of its training samples (to merge leaves when pruning)
 
         /**
          * Internal node constructor.
@@ -61,6 +64,21 @@ public class DecisionTree implements Serializable {
          */
         public Node(int predictedClassLabel) {
             this.predictedClassLabel = predictedClassLabel;
+            this.probability = predictedClassLabel;
+            this.weight = 1.0;
+        }
+
+        /**
+         * Leaf node constructor with the probability of a change.
+         *
+         * @param predictedClassLabel majority class
+         * @param probability         class-weighted share of class 1 in the leaf
+         * @param weight              total class weight of the samples of the leaf
+         */
+        public Node(int predictedClassLabel, double probability, double weight) {
+            this.predictedClassLabel = predictedClassLabel;
+            this.probability = probability;
+            this.weight = weight;
         }
 
         /**
@@ -107,6 +125,15 @@ public class DecisionTree implements Serializable {
     private boolean useClassWeights = true;
     private double zerosWeight = 1.0;
     private double onesWeight = 1.0;
+
+    // Split search: 0 = EXACT (every gap between two sorted values is a candidate threshold, the
+    // textbook CART), > 0 = HISTOGRAM (the values of a feature are put in that many bins first
+    // and only the bin edges are candidates; 16 to 255). When a feature has fewer distinct
+    // values than bins the two give the SAME splits; otherwise the histogram is much faster
+    // (no sorting at every node) at a small cost. See docs/RESEARCH.md for the measured difference.
+    private int maxBins = 0;
+    private transient byte[][] binned; // binned[feature][sample] (unsigned byte), only while building
+    private transient double[][] binEdges; // binEdges[feature][b]: bin b holds the values <= edge b
 
     // Debugging the decision tree
     private boolean verbose = true;
@@ -225,6 +252,19 @@ public class DecisionTree implements Serializable {
      */
     public void setUseClassWeights(boolean useClassWeights) {
         this.useClassWeights = useClassWeights;
+    }
+
+    /**
+     * Chooses the split search.
+     *
+     * @param maxBins 0 = exact, otherwise the number of histogram bins per feature (2 to 255)
+     */
+    public void setMaxBins(int maxBins) {
+
+        if (maxBins != 0 && (maxBins < 2 || maxBins > 255)) {
+            throw new IllegalArgumentException("maxBins must be 0 (exact) or 2..255");
+        }
+        this.maxBins = maxBins;
     }
 
     /**
@@ -583,9 +623,12 @@ public class DecisionTree implements Serializable {
      * Searches all featureMatrix and candidate thresholds to find the split that
      * minimizes weighted impurity.
      *
-     * For each feature the samples are sorted once and swept from left to right,
+     * Exact search: for each feature the samples are sorted once and swept from left to right,
      * keeping running class weights.
      * This gives every possible split in O(n log n) per feature instead of O(n^2).
+     * Histogram search (setMaxBins): the sweep goes over the bins, O(n) per feature.
+     * The features are searched in parallel, the best one is chosen in the order of the
+     * feature index (the lowest index wins a tie), so the tree does not depend on the threads.
      * The class weights handle imbalanced data
      *
      * @param samples sample indices to consider
@@ -610,96 +653,37 @@ public class DecisionTree implements Serializable {
             }
         }
 
-        double total_weight = total_zeros_weight + total_ones_weight;
-
         // Impurity before splitting
         double parent_impurity = calcWeightedImpurity(total_zeros_weight, total_ones_weight);
+
+        final double zeros_total = total_zeros_weight;
+        final double ones_total = total_ones_weight;
+
+        // {impurity, threshold} of the best split of every feature, null when it has none
+        double[][] perFeature = new double[num_featureMatrix][];
+
+        IntStream stream = IntStream.range(0, num_featureMatrix);
+        // small nodes are not worth the threads
+        if ((long) num_samples * num_featureMatrix > 20000L) {
+            stream = stream.parallel();
+        }
+
+        stream.forEach(featureIndex -> {
+            perFeature[featureIndex] = maxBins > 0
+                    ? bestSplitOfFeatureHistogram(samples, featureIndex, zeros_total, ones_total)
+                    : bestSplitOfFeatureExact(samples, featureIndex, zeros_total, ones_total);
+        });
 
         double best_impurity = Double.MAX_VALUE; // Should be 1, as the highest the impurity can be is 1.
         int best_featureIndex = -1;
         double best_threshold = 0.0;
 
-        // positions of the samples, sorted by the current feature
-        Integer[] order = new Integer[num_samples];
-
         for (int featureIndex = 0; featureIndex < num_featureMatrix; featureIndex++) {
 
-            // each sample is assigned an index
-            for (int i = 0; i < num_samples; i++) {
-                order[i] = i;
-            }
-
-            final int current_feature = featureIndex;
-            Arrays.sort(order, (a, b) -> Double.compare(
-                    featureMatrix[samples[a]][current_feature],
-                    featureMatrix[samples[b]][current_feature]));
-
-            double left_zeros_weight = 0.0;
-            double left_ones_weight = 0.0;
-
-            // Try every sample value as a candidate threshold
-            // (the samples are sorted, so every gap between two neighbouring values is
-            // tried in one sweep)
-            for (int k = 0; k < num_samples - 1; k++) {
-
-                // Split the samples: everything up to position k goes LEFT
-                int sample = samples[order[k]];
-
-                if (truthValues[sample] == 1) {
-                    left_ones_weight += onesWeight;
-
-                } else {
-                    left_zeros_weight += zerosWeight;
-                }
-
-                double value = featureMatrix[sample][featureIndex];
-                double next_value = featureMatrix[samples[order[k + 1]]][featureIndex];
-
-                // skipping invalid splits
-                // (equal values can not be separated)
-                if (value == next_value) {
-                    continue;
-                }
-
-                // Extract left and right samples
-                int left_count = k + 1;
-                int right_count = num_samples - left_count;
-
-                // skipping invalid splits (a leaf smaller than minSamplesLeaf)
-                if (left_count < minSamplesLeaf || right_count < minSamplesLeaf) {
-                    continue;
-                }
-
-                // Calculate child impurities
-                double right_zeros_weight = total_zeros_weight - left_zeros_weight;
-                double right_ones_weight = total_ones_weight - left_ones_weight;
-
-                double left_weight = left_zeros_weight + left_ones_weight;
-                double right_weight = right_zeros_weight + right_ones_weight;
-
-                // Calculate weighted impurity
-                double weighted_impurity = (left_weight / total_weight)
-                        * calcWeightedImpurity(left_zeros_weight, left_ones_weight)
-                        + (right_weight / total_weight)
-                                * calcWeightedImpurity(right_zeros_weight, right_ones_weight);
-
-                // updating the best splits
-                if (weighted_impurity < best_impurity) {
-
-                    // threshold between the two values, so it generalises better than a sample
-                    // value
-                    double candidate_threshold = (value + next_value) / 2.0;
-
-                    // rounding can push the middle up to next_value, which would break the "<="
-                    // rule
-                    if (candidate_threshold >= next_value) {
-                        candidate_threshold = value;
-                    }
-
-                    best_impurity = weighted_impurity;
-                    best_featureIndex = featureIndex;
-                    best_threshold = candidate_threshold;
-                }
+            if (perFeature[featureIndex] != null && perFeature[featureIndex][0] < best_impurity) {
+                best_impurity = perFeature[featureIndex][0];
+                best_featureIndex = featureIndex;
+                best_threshold = perFeature[featureIndex][1];
             }
         }
 
@@ -717,6 +701,304 @@ public class DecisionTree implements Serializable {
     }
 
     /**
+     * Best split of ONE feature, exact: every gap between two sorted values is tried.
+     *
+     * @return {weighted impurity, threshold}, or null when the feature has no valid split
+     */
+    private double[] bestSplitOfFeatureExact(int[] samples, int featureIndex, double total_zeros_weight,
+            double total_ones_weight) {
+
+        int num_samples = samples.length;
+        double total_weight = total_zeros_weight + total_ones_weight;
+
+        // positions of the samples, sorted by the current feature
+        double[] keys = new double[num_samples];
+        for (int i = 0; i < num_samples; i++) {
+            keys[i] = featureMatrix[samples[i]][featureIndex];
+        }
+        int[] order = sortedPositions(keys);
+
+        double best_impurity = Double.MAX_VALUE;
+        double best_threshold = 0.0;
+        boolean found = false;
+
+        double left_zeros_weight = 0.0;
+        double left_ones_weight = 0.0;
+
+        // Try every sample value as a candidate threshold
+        // (the samples are sorted, so every gap between two neighbouring values is
+        // tried in one sweep)
+        for (int k = 0; k < num_samples - 1; k++) {
+
+            // Split the samples: everything up to position k goes LEFT
+            int sample = samples[order[k]];
+
+            if (truthValues[sample] == 1) {
+                left_ones_weight += onesWeight;
+
+            } else {
+                left_zeros_weight += zerosWeight;
+            }
+
+            double value = keys[order[k]];
+            double next_value = keys[order[k + 1]];
+
+            // skipping invalid splits
+            // (equal values can not be separated)
+            if (value == next_value) {
+                continue;
+            }
+
+            // Extract left and right samples
+            int left_count = k + 1;
+            int right_count = num_samples - left_count;
+
+            // skipping invalid splits (a leaf smaller than minSamplesLeaf)
+            if (left_count < minSamplesLeaf || right_count < minSamplesLeaf) {
+                continue;
+            }
+
+            // Calculate child impurities
+            double right_zeros_weight = total_zeros_weight - left_zeros_weight;
+            double right_ones_weight = total_ones_weight - left_ones_weight;
+
+            double left_weight = left_zeros_weight + left_ones_weight;
+            double right_weight = right_zeros_weight + right_ones_weight;
+
+            // Calculate weighted impurity
+            double weighted_impurity = (left_weight / total_weight)
+                    * calcWeightedImpurity(left_zeros_weight, left_ones_weight)
+                    + (right_weight / total_weight)
+                            * calcWeightedImpurity(right_zeros_weight, right_ones_weight);
+
+            // updating the best splits
+            if (weighted_impurity < best_impurity) {
+
+                // threshold between the two values, so it generalises better than a sample
+                // value
+                double candidate_threshold = (value + next_value) / 2.0;
+
+                // rounding can push the middle up to next_value, which would break the "<="
+                // rule
+                if (candidate_threshold >= next_value) {
+                    candidate_threshold = value;
+                }
+
+                best_impurity = weighted_impurity;
+                best_threshold = candidate_threshold;
+                found = true;
+            }
+        }
+
+        return found ? new double[] { best_impurity, best_threshold } : null;
+    }
+
+    /**
+     * Best split of ONE feature, histogram: the class weights of the samples are summed per bin
+     * and only the edges between the bins are tried.
+     *
+     * @return {weighted impurity, threshold}, or null when the feature has no valid split
+     */
+    private double[] bestSplitOfFeatureHistogram(int[] samples, int featureIndex, double total_zeros_weight,
+            double total_ones_weight) {
+
+        double[] edges = binEdges[featureIndex];
+        int nBins = edges.length + 1;
+
+        if (nBins < 2) {
+            return null; // constant feature
+        }
+
+        double total_weight = total_zeros_weight + total_ones_weight;
+        byte[] bins = binned[featureIndex];
+
+        int[] counts = new int[nBins];
+        double[] zerosPerBin = new double[nBins];
+        double[] onesPerBin = new double[nBins];
+
+        for (int i = 0; i < samples.length; i++) {
+
+            int sample = samples[i];
+            int bin = bins[sample] & 0xFF;
+            counts[bin]++;
+
+            if (truthValues[sample] == 1) {
+                onesPerBin[bin] += onesWeight;
+            } else {
+                zerosPerBin[bin] += zerosWeight;
+            }
+        }
+
+        double best_impurity = Double.MAX_VALUE;
+        double best_threshold = 0.0;
+        boolean found = false;
+
+        int left_count = 0;
+        double left_zeros_weight = 0.0;
+        double left_ones_weight = 0.0;
+
+        // the split after bin b: everything in the bins 0..b goes LEFT (value <= edges[b])
+        for (int b = 0; b < nBins - 1; b++) {
+
+            left_count += counts[b];
+            left_zeros_weight += zerosPerBin[b];
+            left_ones_weight += onesPerBin[b];
+
+            int right_count = samples.length - left_count;
+
+            // an empty bin gives the same split as the one before it
+            if (counts[b] == 0 || left_count < minSamplesLeaf || right_count < minSamplesLeaf) {
+                continue;
+            }
+
+            double right_zeros_weight = total_zeros_weight - left_zeros_weight;
+            double right_ones_weight = total_ones_weight - left_ones_weight;
+
+            double left_weight = left_zeros_weight + left_ones_weight;
+            double right_weight = right_zeros_weight + right_ones_weight;
+
+            double weighted_impurity = (left_weight / total_weight)
+                    * calcWeightedImpurity(left_zeros_weight, left_ones_weight)
+                    + (right_weight / total_weight)
+                            * calcWeightedImpurity(right_zeros_weight, right_ones_weight);
+
+            if (weighted_impurity < best_impurity) {
+                best_impurity = weighted_impurity;
+                best_threshold = edges[b];
+                found = true;
+            }
+        }
+
+        return found ? new double[] { best_impurity, best_threshold } : null;
+    }
+
+    /**
+     * Positions 0..n-1 sorted by their key (merge sort on primitives: sorting boxed Integers at every
+     * node of every feature was the slowest part of the first version). Stable.
+     */
+    private static int[] sortedPositions(double[] keys) {
+
+        int n = keys.length;
+        int[] order = new int[n];
+        for (int i = 0; i < n; i++) {
+            order[i] = i;
+        }
+
+        int[] buffer = new int[n];
+        for (int width = 1; width < n; width *= 2) {
+
+            for (int from = 0; from < n; from += 2 * width) {
+
+                int middle = Math.min(from + width, n);
+                int to = Math.min(from + 2 * width, n);
+                int left = from;
+                int right = middle;
+                int out = from;
+
+                while (left < middle && right < to) {
+                    buffer[out++] = keys[order[right]] < keys[order[left]] ? order[right++] : order[left++];
+                }
+                while (left < middle) {
+                    buffer[out++] = order[left++];
+                }
+                while (right < to) {
+                    buffer[out++] = order[right++];
+                }
+            }
+
+            int[] swap = order;
+            order = buffer;
+            buffer = swap;
+        }
+
+        return order;
+    }
+
+    /**
+     * Puts the values of every feature into at most maxBins bins (quantiles of the TRAINING
+     * values). A feature with at most maxBins distinct values gets one bin per value, so the
+     * histogram search finds the same splits as the exact one.
+     */
+    private void buildBins() {
+
+        int nSamples = featureMatrix.length;
+        int nFeatures = featureMatrix[0].length;
+
+        binned = new byte[nFeatures][nSamples];
+        binEdges = new double[nFeatures][];
+
+        IntStream.range(0, nFeatures).parallel().forEach(feature -> {
+
+            double[] values = new double[nSamples];
+            for (int i = 0; i < nSamples; i++) {
+                values[i] = featureMatrix[i][feature];
+            }
+            Arrays.sort(values);
+
+            // distinct values
+            int distinct = 0;
+            double[] unique = new double[nSamples];
+            for (int i = 0; i < nSamples; i++) {
+                if (i == 0 || values[i] != values[i - 1]) {
+                    unique[distinct++] = values[i];
+                }
+            }
+
+            double[] edges;
+
+            if (distinct <= maxBins) {
+
+                // the edge between two neighbouring values is their middle
+                edges = new double[Math.max(0, distinct - 1)];
+                for (int e = 0; e < edges.length; e++) {
+                    double middle = (unique[e] + unique[e + 1]) / 2.0;
+                    edges[e] = middle >= unique[e + 1] ? unique[e] : middle;
+                }
+
+            } else {
+
+                // quantile edges, taken from the sorted samples (so a bin holds about the same number of samples)
+                double[] candidate = new double[maxBins - 1];
+                int count = 0;
+                for (int b = 1; b < maxBins; b++) {
+                    int position = (int) ((long) b * nSamples / maxBins);
+                    double edge = values[Math.min(position, nSamples - 1)];
+                    // the edge has to stay under the largest value, and be new
+                    if (edge < values[nSamples - 1] && (count == 0 || edge > candidate[count - 1])) {
+                        candidate[count++] = edge;
+                    }
+                }
+                edges = Arrays.copyOf(candidate, count);
+            }
+
+            binEdges[feature] = edges;
+
+            // bin = the first edge that is >= the value
+            byte[] column = binned[feature];
+            for (int i = 0; i < nSamples; i++) {
+                column[i] = (byte) binOf(edges, featureMatrix[i][feature]);
+            }
+        });
+    }
+
+    private static int binOf(double[] edges, double value) {
+
+        int low = 0;
+        int high = edges.length; // the last bin has no edge
+
+        while (low < high) {
+            int middle = (low + high) >>> 1;
+            if (value <= edges[middle]) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+
+        return low;
+    }
+
+    /**
      * Recursively creates a binary decision tree for the given samples.
      *
      * @param samples sample indices belonging to this node
@@ -729,19 +1011,19 @@ public class DecisionTree implements Serializable {
         // 1. stopping if the maximum depth has been reached
         if (depth >= maxDepth) {
             logNode(depth, "Leaf (max depth), samples=" + samples.length);
-            return new Node(calcMajorityClassLabel(samples)); // leaf node
+            return makeLeaf(samples); // leaf node
         }
 
         // 2. stopping if there are too few samples
         if (samples.length < minSamplesSplit) {
             logNode(depth, "Leaf (too few samples), samples=" + samples.length);
-            return new Node(calcMajorityClassLabel(samples)); // leaf node
+            return makeLeaf(samples); // leaf node
         }
 
         // 3. stopping if the node is pure
         if (calcImpurity(samples) < epsilon) {
             logNode(depth, "Leaf (pure node), samples=" + samples.length);
-            return new Node(calcMajorityClassLabel(samples));
+            return makeLeaf(samples);
         }
 
         double[] split = findBestSplit(samples);
@@ -750,7 +1032,7 @@ public class DecisionTree implements Serializable {
         // minImpurityDecrease
         if (split == null) { // no useful split
             logNode(depth, "Leaf (no useful split), samples=" + samples.length);
-            return new Node(calcMajorityClassLabel(samples));
+            return makeLeaf(samples);
         }
 
         // split dictionary
@@ -774,6 +1056,25 @@ public class DecisionTree implements Serializable {
         node.right = makeBinaryTree(right_samples, depth + 1);
 
         return node;
+    }
+
+    /**
+     * A leaf: the majority class (class weighted) and the class weighted share of
+     * changes among its training samples, which is the probability the leaf gives
+     * (see predictProbability), so the threshold can be tuned like for the other models.
+     */
+    private Node makeLeaf(int[] samples) {
+
+        int onesCount = 0;
+        for (int sample : samples) {
+            onesCount += truthValues[sample] == 1 ? 1 : 0;
+        }
+
+        double ones_weight = onesCount * onesWeight;
+        double zeros_weight = (samples.length - onesCount) * zerosWeight;
+        double weight = ones_weight + zeros_weight;
+
+        return new Node(calcMajorityClassLabel(samples), weight > 0.0 ? ones_weight / weight : 0.0, weight);
     }
 
     /**
@@ -805,8 +1106,16 @@ public class DecisionTree implements Serializable {
             all_samples[i] = i;
         }
 
+        if (maxBins > 0) {
+            buildBins();
+        }
+
         // Start building the tree at depth 0
         root = makeBinaryTree(all_samples, 0);
+
+        // the bins are only needed while building
+        binned = null;
+        binEdges = null;
     }
 
     /**
@@ -874,6 +1183,39 @@ public class DecisionTree implements Serializable {
     }
 
     /**
+     * The probability of a change (class 1) for a sample: the class weighted share of changes
+     * among the training samples of the leaf the sample ends in.
+     *
+     * @param sample feature vector
+     * @return probability of a change, 0 to 1
+     */
+    public double predictProbability(double[] sample) {
+
+        if (root == null) {
+            throw new IllegalStateException("The tree is not trained. Call makeBinaryTree() first");
+        }
+
+        if (sample == null || sample.length != numFeatures) {
+            throw new IllegalArgumentException("sample must have " + numFeatures + " features");
+        }
+
+        Node node = root;
+        while (!node.isLeafNode()) {
+            node = sample[node.featureIndex] <= node.threshold ? node.left : node.right;
+        }
+
+        return node.probability;
+    }
+
+    /** The probability of a change for every row of a feature matrix. */
+    public double[] predictProbabilities(double[][] samples) {
+
+        double[] probabilities = new double[samples.length];
+        IntStream.range(0, samples.length).parallel().forEach(i -> probabilities[i] = predictProbability(samples[i]));
+        return probabilities;
+    }
+
+    /**
      * Removes the splits that can never change a prediction: a node whose two
      * children are leaves with the SAME label asks a question whose answer
      * doesn't matter. It is replaced by a single leaf. Repeats upwards, so a
@@ -902,7 +1244,11 @@ public class DecisionTree implements Serializable {
 
         if (node.left.isLeafNode() && node.right.isLeafNode()
                 && node.left.predictedClassLabel == node.right.predictedClassLabel) {
-            return new Node(node.left.predictedClassLabel);
+            double weight = node.left.weight + node.right.weight;
+            double probability = weight > 0.0
+                    ? (node.left.probability * node.left.weight + node.right.probability * node.right.weight) / weight
+                    : node.left.probability;
+            return new Node(node.left.predictedClassLabel, probability, weight);
         }
 
         return node;
@@ -1030,9 +1376,7 @@ public class DecisionTree implements Serializable {
 
         int[] predictions = new int[samples.length];
 
-        for (int i = 0; i < samples.length; i++) {
-            predictions[i] = predict(samples[i]);
-        }
+        IntStream.range(0, samples.length).parallel().forEach(i -> predictions[i] = predict(samples[i]));
 
         return predictions;
     }
@@ -1048,7 +1392,7 @@ public class DecisionTree implements Serializable {
      *
      * @param testMatrix      feature matrix of the dataset
      * @param testTruthValues truth values of the dataset
-     * @return {accuracy, precision, recall, f1, balancedAccuracy}
+     * @return {accuracy, precision, recall, f1, balancedAccuracy, macroF1}
      */
     public double[] evaluate(double[][] testMatrix, int[] testTruthValues) {
 

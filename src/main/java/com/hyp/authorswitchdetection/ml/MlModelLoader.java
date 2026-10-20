@@ -1,178 +1,142 @@
 package com.hyp.authorswitchdetection.ml;
 
-import features.FeatureExtractor;
-import models.DecisionTree;
-import models.NeuralNetwork;
+import models.ModelStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.ObjectInputStream;
-
-/*
-    TODO: (1) Random Forest has no .ser file yet
-*/
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * Loading the models used for prediction.
+ * Loading the trained models for prediction, through models.ModelStore (the same code and the same
+ * file format the command line uses, so a model trained with Main / RetrievalMain is picked up here).
+ *
+ * A model file that was saved by an older version of the code (another feature set) is NOT
+ * used: problem(type) returns the reason, and the pages show it as a banner ("retrain the model").
+ * There is no bundled baseline and no random fallback any more: a prediction is always made by a
+ * trained model, or it is not made.
  */
 @Component
 public class MlModelLoader {
 
     private static final Logger log = LoggerFactory.getLogger(MlModelLoader.class);
 
+    public static final String TREE = ModelStore.TREE;
+    public static final String LOGISTIC = ModelStore.LOGISTIC;
+    public static final String NEURAL = ModelStore.NEURAL;
+    public static final String RETRIEVAL = ModelStore.RETRIEVAL;
+
+    /** The file names are the ones Main.java / RetrievalMain.java write. */
+    private static final Map<String, String> FILES = new LinkedHashMap<>();
+    static {
+        FILES.put(TREE, "decisionTree.ser");
+        FILES.put(LOGISTIC, "logisticRegression.ser");
+        FILES.put(NEURAL, "neuralNetwork.ser");
+        FILES.put(RETRIEVAL, "retrieval.ser");
+    }
+
     @Value("${app.trained-models.dir:data/models}")
     private String trainedModelsDir;
 
-    public record DecisionTreeModel(DecisionTree tree, FeatureExtractor extractor, boolean fullFeatures) {
+    // not final: reload() swaps these after a new model has been trained
+    private volatile Map<String, ModelStore.Loaded> loaded = new LinkedHashMap<>();
+    private volatile Map<String, String> problems = new LinkedHashMap<>();
+
+    /** Loads when first asked (@Value is not set yet in the constructor), and again when a model file changed. */
+    private volatile boolean read = false;
+    private volatile String stamp = "";
+
+    /** The size and time of change of every model file: a model trained by Main while the app runs is noticed. */
+    private String currentStamp() {
+        StringBuilder sb = new StringBuilder();
+        for (String file : FILES.values()) {
+            File f = new File(trainedModelsDir, file);
+            sb.append(f.isFile() ? f.lastModified() + ":" + f.length() : "-").append('|');
+        }
+        return sb.toString();
     }
 
-    public record LogisticRegressionModel(double[] weightsBias, double threshold, FeatureExtractor extractor,
-            boolean fullFeatures) {
+    /** Re-reads all the models, called again by TrainingService once a run finishes. */
+    public synchronized void reload() {
+
+        Map<String, ModelStore.Loaded> newLoaded = new LinkedHashMap<>();
+        Map<String, String> newProblems = new LinkedHashMap<>();
+
+        for (Map.Entry<String, String> entry : FILES.entrySet()) {
+
+            File file = new File(trainedModelsDir, entry.getValue());
+            if (!file.isFile()) {
+                continue; // nothing trained yet, that is not a problem, just a model that is not there
+            }
+
+            try {
+                newLoaded.put(entry.getKey(), ModelStore.load(file.getPath()));
+                log.info("Loaded {} model from {}", entry.getKey(), file.getPath());
+
+            } catch (Exception | LinkageError e) {
+
+                // e.g. "retrain the model" for a file of the old format
+                String reason = e.getMessage();
+                if (reason == null || e instanceof java.io.EOFException || e instanceof java.io.StreamCorruptedException
+                        || e instanceof ClassNotFoundException || e instanceof LinkageError) {
+                    reason = "the model file is damaged or was saved by another version of the code - retrain the model";
+                }
+                newProblems.put(entry.getKey(), reason);
+                log.warn("Could not load the {} model ({}): {}", entry.getKey(), file.getPath(), reason);
+            }
+        }
+
+        this.loaded = newLoaded;
+        this.problems = newProblems;
+        this.stamp = currentStamp();
+        this.read = true;
     }
 
-    public record NeuralNetworkModel(NeuralNetwork network, double threshold, FeatureExtractor extractor,
-            boolean fullFeatures) {
-    }
-
-    // not final: reload() will swap these out once a new model has been trained
-    private volatile DecisionTreeModel decisionTree;
-    private volatile LogisticRegressionModel logisticRegression;
-    private volatile NeuralNetworkModel neuralNetwork;
-
-    public MlModelLoader() {
-        reload();
-    }
-
-    /** Re-reads all 3 models, called again by TrainingService once a run finishes. */
-    public void reload() {
-        this.decisionTree = loadDecisionTree("decisionTree.ser");
-        this.logisticRegression = loadLogisticRegression("logisticRegression.ser");
-        this.neuralNetwork = loadNeuralNetwork("neuralNetwork.ser");
-    }
-
-    public DecisionTreeModel decisionTree() {
-        return decisionTree;
-    }
-
-    public LogisticRegressionModel logisticRegression() {
-        return logisticRegression;
-    }
-
-    public NeuralNetworkModel neuralNetwork() {
-        return neuralNetwork;
-    }
-
-    /**
-     * Loading the decision tree + its extractor, same order Main.trainDecisionTree
-     * (and RealTrainer.trainDecisionTree) write them in.
-     */
-    private DecisionTreeModel loadDecisionTree(String fileName) {
-
-        try (ObjectInputStream ois = openObjectStream(fileName)) {
-
-            DecisionTree tree = (DecisionTree) ois.readObject();
-            FeatureExtractor extractor = (FeatureExtractor) ois.readObject();
-            extractor.requireCompatible();
-            boolean fullFeatures = readFullFeaturesFlag(ois);
-
-            // drop the questions whose answer never changes the label (lossless, same predictions)
-            int removed = tree.pruneRedundantSplits();
-
-            log.info("Loaded decision tree model from {} ({} redundant splits removed, {} left)", describeSource(fileName),
-                    removed, tree.countSplits());
-            return new DecisionTreeModel(tree, extractor, fullFeatures);
-
-        } catch (Exception e) {
-
-            log.warn("Could not load decision tree model ({}): {}", fileName, e.getMessage());
-            return null;
+    private void ensureRead() {
+        if (!read || !stamp.equals(currentStamp())) {
+            reload();
         }
     }
 
-    /**
-     * Loading the logistic regression weights + bias, the chosen threshold, then
-     * the extractor, same order Main.trainLogisticRegression writes them in.
-     */
-    private LogisticRegressionModel loadLogisticRegression(String fileName) {
-
-        try (ObjectInputStream ois = openObjectStream(fileName)) {
-
-            double[] weightsBias = (double[]) ois.readObject();
-            double threshold = ois.readDouble();
-            FeatureExtractor extractor = (FeatureExtractor) ois.readObject();
-            extractor.requireCompatible();
-            boolean fullFeatures = readFullFeaturesFlag(ois);
-
-            log.info("Loaded logistic regression model from {}", describeSource(fileName));
-            return new LogisticRegressionModel(weightsBias, threshold, extractor, fullFeatures);
-
-        } catch (Exception e) {
-
-            log.warn("Could not load logistic regression model ({}): {}", fileName, e.getMessage());
-            return null;
-        }
+    /** The loaded model of this type (tree, logistic, neural, retrieval), or null. */
+    public ModelStore.Loaded get(String type) {
+        ensureRead();
+        return loaded.get(type);
     }
 
-    /**
-     * Loading the network, the chosen threshold, then the extractor, same order
-     * Main.trainNeuralNetwork writes them in.
-     */
-    private NeuralNetworkModel loadNeuralNetwork(String fileName) {
-
-        try (ObjectInputStream ois = openObjectStream(fileName)) {
-
-            NeuralNetwork network = (NeuralNetwork) ois.readObject();
-            double threshold = ois.readDouble();
-            FeatureExtractor extractor = (FeatureExtractor) ois.readObject();
-            extractor.requireCompatible();
-            boolean fullFeatures = readFullFeaturesFlag(ois);
-
-            log.info("Loaded neural network model from {}", describeSource(fileName));
-            return new NeuralNetworkModel(network, threshold, extractor, fullFeatures);
-
-        } catch (Exception e) {
-
-            log.warn("Could not load neural network model ({}): {}", fileName, e.getMessage());
-            return null;
-        }
+    public ModelStore.Loaded decisionTree() {
+        return get(TREE);
     }
 
-    /**
-     * Reads a boolean flags for which feature set the model actually uses.
-     */
-    private boolean readFullFeaturesFlag(ObjectInputStream ois) {
-        try {
-            return ois.readBoolean();
-        } catch (IOException endOfOldFile) {
-            return true;
-        }
+    public ModelStore.Loaded logisticRegression() {
+        return get(LOGISTIC);
     }
 
-    // a freshly trained model on disk wins over the bundled baseline on the classpath
-    private ObjectInputStream openObjectStream(String fileName) throws IOException {
-
-        File localFile = new File(trainedModelsDir, fileName);
-        if (localFile.isFile()) {
-            return new ObjectInputStream(new BufferedInputStream(new FileInputStream(localFile)));
-        }
-
-        InputStream in = getClass().getClassLoader().getResourceAsStream("ml-models/" + fileName);
-        if (in == null) {
-            throw new IOException("Not found in " + trainedModelsDir + " or on the classpath: " + fileName);
-        }
-
-        return new ObjectInputStream(new BufferedInputStream(in));
+    public ModelStore.Loaded neuralNetwork() {
+        return get(NEURAL);
     }
 
-    private String describeSource(String fileName) {
-        File localFile = new File(trainedModelsDir, fileName);
-        return localFile.isFile() ? localFile.getPath() : "ml-models/" + fileName + " (bundled baseline)";
+    public ModelStore.Loaded retrieval() {
+        return get(RETRIEVAL);
+    }
+
+    /** Why a model file exists but could not be used (stale, corrupt), null when it loaded or there is no file. */
+    public String problem(String type) {
+        ensureRead();
+        return problems.get(type);
+    }
+
+    /** All the problems, type -> message; shown as a banner on the pages. */
+    public Map<String, String> allProblems() {
+        ensureRead();
+        return Map.copyOf(problems);
+    }
+
+    /** The file a model of this type is read from. */
+    public File fileOf(String type) {
+        return new File(trainedModelsDir, FILES.get(type));
     }
 }

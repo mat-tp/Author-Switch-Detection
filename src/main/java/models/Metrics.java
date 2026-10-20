@@ -22,7 +22,7 @@ public class Metrics {
      * 
      * @param predictions 0 / 1 predictions
      * @param truthValues truth values
-     * @return {accuracy, precision, recall, f1, balancedAccuracy}
+     * @return {accuracy, precision, recall, f1, balancedAccuracy, macroF1}
      */
     public static double[] evaluate(int[] predictions, int[] truthValues) {
 
@@ -41,8 +41,8 @@ public class Metrics {
         System.out.println("  truth 0  " + String.format("%7d  %7d", trueNegatives, falsePositives));
         System.out.println("  truth 1  " + String.format("%7d  %7d", falseNegatives, truePositives));
         System.out.println(String.format(
-                "Accuracy=%.4f (majority baseline=%.4f) | Balanced Accuracy=%.4f | Precision=%.4f | Recall=%.4f | F1=%.4f",
-                result[0], baseline, result[4], result[1], result[2], result[3]));
+                "Accuracy=%.4f (majority baseline=%.4f) | Balanced Accuracy=%.4f | Precision=%.4f | Recall=%.4f | F1(change)=%.4f | Macro-F1=%.4f",
+                result[0], baseline, result[4], result[1], result[2], result[3], result[5]));
 
         return result;
     }
@@ -51,7 +51,9 @@ public class Metrics {
      * Same numbers as evaluate, WITHOUT printing (used by the automated ablation
      * study, which evaluates hundreds of runs).
      *
-     * @return {accuracy, precision, recall, f1, balancedAccuracy}
+     * @return {accuracy, precision, recall, f1, balancedAccuracy, macroF1}. f1 is the F1 of
+     *         class 1 (change), macroF1 the average of the F1 of class 1 and the F1 of class 0 -
+     *         the official measure of PAN 2026
      */
     public static double[] evaluateQuietly(int[] predictions, int[] truthValues) {
 
@@ -79,7 +81,42 @@ public class Metrics {
         double specificity = negatives == 0 ? 0.0 : (double) trueNegatives / negatives; // TNR
         double balancedAccuracy = (recall + specificity) / 2.0;
 
-        return new double[] { accuracy, precision, recall, f1, balancedAccuracy };
+        return new double[] { accuracy, precision, recall, f1, balancedAccuracy, calcMacroF1(counts) };
+    }
+
+    /**
+     * Macro-F1 over the two classes: (F1 of "change" + F1 of "no change") / 2.
+     *
+     * This is the measure PAN 2026 ranks by (the official PAN 2026 test baselines: always 'no
+     * change' 0.410 / 0.489 / 0.441 and always 'change' 0.234 / 0.042 / 0.173 on easy / medium / hard, see docs/RESEARCH.md), unlike the F1 of the change class alone that the
+     * first version of the paper reported. The boundaries of ALL documents are pooled.
+     *
+     * @param predictions 0 / 1 predictions
+     * @param truthValues truth values
+     * @return macro-F1
+     */
+    public static double calcMacroF1(int[] predictions, int[] truthValues) {
+        return calcMacroF1(countOutcomes(predictions, truthValues));
+    }
+
+    private static double calcMacroF1(int[] counts) {
+
+        int truePositives = counts[0];
+        int falsePositives = counts[1];
+        int trueNegatives = counts[2];
+        int falseNegatives = counts[3];
+
+        // class 1 = change; class 0 = no change (the roles of the counts swap)
+        double f1Change = f1(truePositives, falsePositives, falseNegatives);
+        double f1Same = f1(trueNegatives, falseNegatives, falsePositives);
+
+        return (f1Change + f1Same) / 2.0;
+    }
+
+    private static double f1(int truePositives, int falsePositives, int falseNegatives) {
+
+        int denominator = 2 * truePositives + falsePositives + falseNegatives;
+        return denominator == 0 ? 0.0 : 2.0 * truePositives / denominator;
     }
 
     /**
@@ -126,9 +163,9 @@ public class Metrics {
         double[] result = evaluate(predictions, truthValues);
 
         return String.format(java.util.Locale.ROOT,
-                "%s: n=%d, accuracy=%.4f, precision=%.4f, recall=%.4f, f1=%.4f, balancedAccuracy=%.4f",
+                "%s: n=%d, accuracy=%.4f, precision=%.4f, recall=%.4f, f1=%.4f, balancedAccuracy=%.4f, macroF1=%.4f",
                 label, truthValues.length, result[0], result[1], result[2], result[3],
-                result.length > 4 ? result[4] : 0.0);
+                result.length > 4 ? result[4] : 0.0, result.length > 5 ? result[5] : 0.0);
     }
 
     /**

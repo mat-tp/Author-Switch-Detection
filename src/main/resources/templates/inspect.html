@@ -20,8 +20,9 @@
             <div class="form-group">
                 <label for="model_name">Features of model <span class="muted">(each model keeps the statistics it was trained with)</span></label>
                 <select id="model_name" name="modelName">
-                    <option th:each="m : ${inspectModels}" th:value="${m}" th:text="${m}"
-                            th:selected="${m == selectedModel}"></option>
+                    <option th:each="o : ${modelOptions}" th:value="${o.name}"
+                            th:text="${o.label} + (${o.ready} ? '' : ' (not trained: default settings)')"
+                            th:selected="${o.name == selectedModel}"></option>
                 </select>
             </div>
             <div class="form-row">
@@ -45,14 +46,17 @@
     </div>
 
     <div th:if="${result}">
+        <div class="note-box" th:if="${result.note}" th:text="${result.note}"></div>
+
         <section class="mt">
             <h2 class="section-title">Text Overview</h2>
             <div class="stat-grid-7">
                 <div class="stat-box"><div class="stat-value" th:text="${result.nSentences}">0</div><div class="stat-key">Sentences</div></div>
                 <div class="stat-box"><div class="stat-value" th:text="${result.nPairs}">0</div><div class="stat-key">Sentence pairs</div></div>
-                <div class="stat-box"><div class="stat-value">9 + 256</div><div class="stat-key">Features / sentence</div></div>
-                <div class="stat-box"><div class="stat-value">11</div><div class="stat-key">Features / pair</div></div>
+                <div class="stat-box"><div class="stat-value" th:text="${#arrays.length(result.sentenceFeatureNames)} + ' + ' + ${result.profileBuckets}">0</div><div class="stat-key">Features / sentence (scalar + profile buckets)</div></div>
+                <div class="stat-box"><div class="stat-value" th:text="${#arrays.length(result.pairFeatureNames)}">0</div><div class="stat-key">Features / pair</div></div>
             </div>
+            <p class="muted small mt-sm">Feature settings: <code th:text="${result.featureConfig}"></code></p>
         </section>
 
         <section class="mt">
@@ -60,14 +64,13 @@
                 <span class="section-sub">(all <span th:text="${result.nSentences}"></span> sentences)</span></h2>
 
             <div class="metric-note">
-                <strong>Per sentence:</strong> <span th:text="${#arrays.length(result.sentenceFeatureNames)}">14</span> scalar features, shown as extracted (<em>raw</em>) and as a
-                <em>z-score</em> <code>(value − training mean) / training std</code>, which is what the model actually sees.
-                The 256 hashed character-trigram buckets are not listed one by one; they enter the pair vector through
-                the <code>ngram_cosine_similarity</code>.<br>
-                <strong>Between sentences:</strong> the pair vector given to the model:
-                <code>diff_x = |z_x(A) − z_x(B)|</code> for each of the 9 features,
-                <code>ngram_cosine_similarity</code> (1 = same trigram profile), and
-                <code>overall_distance = sqrt( Σ (z_x(A) − z_x(B))² / 9 )</code>.
+                <strong>Per sentence:</strong> <span th:text="${#arrays.length(result.sentenceFeatureNames)}">63</span> scalar features, shown as extracted (<em>raw</em>) and as a
+                <em>z-score</em> <code>(value − training mean) / training std</code> (cut at ±<code>zClip</code>), which is what the model actually sees.
+                The <span th:text="${result.profileBuckets}">0</span> profile buckets (hashed character n-grams, hashed POS-tag n-grams, function words) are not listed one by one;
+                they enter the pair vector through 4 measures per profile (cosine, Jensen–Shannon distance, total variation, support overlap).<br>
+                <strong>Between sentences:</strong> the pair vector given to the model, <span th:text="${#arrays.length(result.pairFeatureNames)}">0</span> numbers:
+                the scalar columns (by default <code>abs_x = |z_x(A) − z_x(B)|</code> for each of the scalar features),
+                the measures of every profile, and <code>overall_distance</code>, the root mean square of the z-score differences.
                 Values are shown as computed, not scaled.
             </div>
 
@@ -77,7 +80,7 @@
                     <div class="sentence-card">
                         <div class="sent-header">
                             <span class="sent-num" th:text="'#' + ${s.index}">#1</span>
-                            <span class="sent-last" th:text="${s.nGramBucketsUsed} + ' / 256 trigram buckets used'"></span>
+                            <span class="sent-last" th:text="${s.nGramBucketsUsed} + ' / ' + ${result.profileBuckets} + ' profile buckets used'"></span>
                         </div>
                         <div class="sent-text" th:text="${s.text}"></div>
                         <table class="feat-table">

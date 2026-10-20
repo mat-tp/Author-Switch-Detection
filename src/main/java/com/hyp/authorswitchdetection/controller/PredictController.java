@@ -70,6 +70,10 @@ public class PredictController {
         }
 
         PredictionResult result = predictionService.predict(sentences, modelName, truth);
+        if (result.error != null) {
+            model.addAttribute("error", result.error);
+            return "predict";
+        }
         if (truthError != null) {
             result.truthError = truthError;
         }
@@ -80,9 +84,9 @@ public class PredictController {
     private void addCommon(Model model, HttpSession session) {
         User user = currentUserService.getCurrentUser(session).orElse(null);
         model.addAttribute("currentUser", user);
-        boolean trained = trainingService.isAnyModelTrained();
-        model.addAttribute("trained", trained);
-        model.addAttribute("availableModels", classifierRegistry.allNames());
+        model.addAttribute("modelOptions", classifierRegistry.options());
+        model.addAttribute("anyReady", classifierRegistry.options().stream().anyMatch(o -> o.ready()));
+        model.addAttribute("problems", classifierRegistry.options().stream().filter(o -> o.problem() != null).toList());
     }
 
     private String resolveInputText(String text, MultipartFile file) throws IOException {

@@ -22,6 +22,9 @@ public class ModelMetrics {
     private double precision;
     private double recall;
     private double balancedAccuracy;
+    // macro-F1 over the two classes (change / no change): the measure PAN 2026 ranks by.
+    // f1 above stays the F1 of the change class alone, as the first version reported it.
+    private double macroF1;
     private double decisionThreshold;
 
     // true when f1/precision/recall/balancedAccuracy above come from the
@@ -49,6 +52,7 @@ public class ModelMetrics {
 
     // --- feature-set / hyperparameter search + training curve, from RealTrainer ---
     private String chosenConfig;       // e.g. "full features, learning rate=0.6"
+    private String featureConfig;      // FeatureConfig.signature(): casing, n-gram orders, buckets, pair representation
     private String gridResultsCsv;     // every combination tried, one per line, ";" joined
     private String curveXLabel;        // e.g. "iteration", "epoch", "max depth"
     private String curveYLabel;        // e.g. "Training loss", "Validation F1"
@@ -83,6 +87,12 @@ public class ModelMetrics {
 
     public double getBalancedAccuracy() { return balancedAccuracy; }
     public void setBalancedAccuracy(double balancedAccuracy) { this.balancedAccuracy = balancedAccuracy; }
+
+    public double getMacroF1() { return macroF1; }
+    public void setMacroF1(double macroF1) { this.macroF1 = macroF1; }
+
+    public String getFeatureConfig() { return featureConfig; }
+    public void setFeatureConfig(String featureConfig) { this.featureConfig = featureConfig; }
 
     public boolean isEvaluatedOnTest() { return evaluatedOnTest; }
     public void setEvaluatedOnTest(boolean evaluatedOnTest) { this.evaluatedOnTest = evaluatedOnTest; }
@@ -119,6 +129,27 @@ public class ModelMetrics {
 
     public String getGridResultsCsv() { return gridResultsCsv; }
     public void setGridResultsCsv(String gridResultsCsv) { this.gridResultsCsv = gridResultsCsv; }
+
+    /** "2026-10-19 14:05", for the Results page. */
+    public String getTrainedAtDisplay() {
+        return trainedAt == null ? "" : trainedAt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+    }
+
+    /** The name of the model as shown to the user ("Decision Tree" and not "decision_tree"). */
+    public String getModelLabel() {
+        return modelName == null ? "" : switch (modelName) {
+            case "decision_tree" -> "Decision Tree";
+            case "logistic_regression" -> "Logistic Regression";
+            case "neural_network" -> "Neural Network";
+            case "retrieval_embedding" -> "Retrieval (embedding)";
+            default -> modelName;
+        };
+    }
+
+    /** Where the run came from, for the Results page. */
+    public String getSourceLabel() {
+        return "cli".equals(trainedBy) ? "command line" : "web Train page";
+    }
 
     /** Grid results with one configuration per line, for display in the web app. */
     public String getGridResultsDisplay() {

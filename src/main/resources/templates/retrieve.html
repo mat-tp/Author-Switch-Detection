@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Retrieve')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Retrieve Similar Sentences</h1>
+        <p class="subtitle">
+            The retrieval model embeds every sentence <em>on its own</em> from its features. Sentences written alike end up
+            close together, sentences written unlike end up far apart. Paste a text (one sentence per line) to see
+            which sentences belong together, and where neighbouring sentences are most unlike.
+        </p>
+    </div>
+
+    <div class="alert alert-warning" th:if="${error}" th:text="${error}"></div>
+
+    <div class="card">
+        <div class="card-label">Input</div>
+        <form method="post" th:action="@{/retrieve}" enctype="multipart/form-data">
+            <div class="form-row">
+                <div class="form-group grow">
+                    <label for="text">Paste text <span class="muted">(one sentence per line, the first 60 are shown)</span></label>
+                    <textarea id="text" name="text" rows="9" placeholder="Paste sentences here, one per line..." th:text="${inputText}"></textarea>
+                </div>
+                <div class="form-group upload-col">
+                    <label for="file">Or upload a .txt file</label>
+                    <label class="file-drop" for="file">
+                        <span class="file-icon">↑</span>
+                        <span id="file-label">Choose file</span>
+                        <input type="file" id="file" name="file" accept=".txt"
+                            onchange="document.getElementById('file-label').textContent = this.files[0]?.name || 'Choose file'">
+                    </label>
+                    <label for="neighbours" class="mt-sm">Nearest sentences listed</label>
+                    <select id="neighbours" name="neighbours">
+                        <option value="1">1</option><option value="2">2</option>
+                        <option value="3" selected>3</option><option value="5">5</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Retrieve →</button>
+        </form>
+    </div>
+
+    <div th:if="${result}">
+        <p class="muted small mt-sm" th:if="${result.modelDescription != null and !result.modelDescription.isEmpty()}"
+           th:text="'Trained with: ' + ${result.modelDescription}"></p>
+        <div class="note-box" th:if="${result.truncated}">More sentences were pasted than the heatmap can show; only the first 60 are used.</div>
+
+        <section class="mt">
+            <h2 class="section-title">Where does the style change?
+                <span class="section-sub">(window of <span th:text="${result.window}"></span> sentence(s) on each side)</span></h2>
+            <p class="muted small">Each bar is the distance between the sentences left and right of that position
+                (0 = alike, 1 = most unlike). Red bars are above the threshold
+                <strong th:text="${#numbers.formatDecimal(result.threshold, 1, 3)}"></strong>, which was chosen on validation data when the model was trained,
+                and are predicted switches.</p>
+            <div class="change-strip">
+                <div class="cell" th:each="score, it : ${result.changeScore}" th:classappend="${result.predictedSwitch[it.index]} ? 'switch' : ''"
+                     th:title="'between ' + (${it.index} + 1) + ' and ' + (${it.index} + 2) + ': ' + ${#numbers.formatDecimal(score, 1, 3)}">
+                    <div class="fill" th:style="'height:' + ${#numbers.formatDecimal(score * 100, 1, 0)} + '%'"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mt">
+            <h2 class="section-title">Similarity between sentences</h2>
+            <div class="heatmap-legend">
+                <span th:text="'unlike (' + ${#numbers.formatDecimal(result.minSimilarity, 1, 2)} + ')'"></span>
+                <span class="bar"></span>
+                <span th:text="'alike (' + ${#numbers.formatDecimal(result.maxSimilarity, 1, 2)} + ')'"></span>
+                <span>· cosine similarity of the embeddings; the colour scale runs over the pairs of different sentences</span>
+            </div>
+            <div class="table-scroll">
+                <table class="heatmap">
+                    <thead>
+                    <tr><th></th><th th:each="j : ${#numbers.sequence(1, result.nSentences)}" th:text="${j}"></th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="i : ${#numbers.sequence(0, result.nSentences - 1)}">
+                        <th th:text="${i + 1}"></th>
+                        <td th:each="j : ${#numbers.sequence(0, result.nSentences - 1)}"
+                            th:class="${i == j} ? 'diag' : ''"
+                            th:style="'background:' + ${result.cellColor[i][j]}"
+                            th:title="'#' + ${i + 1} + ' ~ #' + ${j + 1} + ': ' + ${#numbers.formatDecimal(result.similarity[i][j], 1, 3)}"
+                            th:text="${i == j} ? '' : ${#numbers.formatDecimal(result.similarity[i][j] * 100, 1, 0)}"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="muted small mt-sm">Cells show the similarity times 100. A text with two authors shows up as blocks along the diagonal.</p>
+        </section>
+
+        <section class="mt">
+            <h2 class="section-title">Nearest sentences</h2>
+            <div class="sentence-list">
+                <div class="sentence-card" th:each="s : ${result.sentences}">
+                    <div class="sent-header"><span class="sent-num" th:text="'#' + ${s.index}"></span></div>
+                    <div class="sent-text" th:text="${s.text}"></div>
+                    <ul class="nearest">
+                        <li th:each="n : ${s.nearest}">
+                            <strong th:text="'#' + ${n.index}"></strong>
+                            <span th:text="'(' + ${#numbers.formatDecimal(n.similarity, 1, 3)} + ')'"></span>
+                            <span th:text="${n.text}"></span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

@@ -1,106 +1,50 @@
 \documentclass[runningheads]{llncs}
 %
-\let\subparagraph\paragraph % work around llncs/titlesec clash
-\usepackage{titlesec}
-\titlespacing*{\section}{0pt}{*1}{*1}
-\titlespacing*{\subsection}{0pt}{*0.8}{*0.8}
-
-\usepackage{enumitem}
-\setlist[itemize]{topsep=0pt, partopsep=0pt, itemsep=0pt, parsep=0pt}
-\setlist[enumerate]{topsep=0pt, partopsep=0pt, itemsep=0pt, parsep=0pt}
-
-\setlength{\parskip}{0pt}
-\setlength{\parindent}{1em}
-
 \usepackage[T1]{fontenc}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath,amssymb}
+\usepackage{url}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
+\usetikzlibrary{arrows.meta, positioning}
+
+% all tables use this small font
+\newcommand{\tablefont}{\scriptsize\setlength{\tabcolsep}{3pt}}
 
 \begin{document}
-\flushbottom
-\addtolength{\voffset}{-1.5cm}
-\addtolength{\textheight}{1.5cm}
 
-\title{Interpretable Stylometric Detection of Sentence-Level Author Switches in Multi-Author Documents}
+\title{Evaluating Interpretable Stylometric Features for Sentence-Level Author Switch Detection}
+\titlerunning{Interpretable Stylometric Author Switch Detection}
 
 \author{Tshephang Phuti-A-Nkutu Matlala}
+\authorrunning{T. P. Matlala}
 \institute{University of Johannesburg, South Africa \\
 \email{223004635@student.uj.ac.za}}
 
-\titlerunning{Stylometric Detection of Author Switches}
 \maketitle
 
 \begin{abstract}
-Detecting where one author's writing ends and another's begins within a single document, known as style change detection, is a
-central problem in authorship analysis, with applications in forensic linguistics, academic integrity investigation, gift authorship
-detection, and the moderation of anonymous online content. State of the art systems are increasingly transformer based and give little
-insight into which linguistic properties signalled a change, which limits their use where an explanation is required. This paper
-presents an interpretable, stylometrically grounded system for sentence level author switch detection, implemented from scratch in
-Java. Each sentence is described by nine named stylometric scalars (length, frequent word ratio, punctuation density, digit and
-uppercase ratio, average word length, mean TF-IDF, and a lexicon based emotion score) plus a hashed character trigram profile; a
-sentence pair is represented by eleven features, namely the nine absolute standardised differences, the trigram cosine similarity,
-and an overall distance. We motivate the hashed n gram profile by its fixed size and corpus independent cost, which keeps the approach
-scalable to real world corpora. A decision tree, logistic regression, and a feed forward neural network are trained with class weighting
-and a validation tuned decision threshold on the PAN 2026 multi-author writing style analysis data, and evaluated on a held out, document
-disjoint test split of 259,653 sentence pairs. The three models reach F1 scores of 0.435 to 0.456 overall (balanced accuracy 0.66 to 0.67).
-The result is strongly difficulty dependent: on easy pairs, where authorship changes coincide with topic changes, F1 is 0.85 to 0.87, whereas
-on medium and hard pairs balanced accuracy is close to 0.50, i.e. the features carry almost no usable style signal once topic is controlled.
-I have discussed what this shows about surface stylometry, and set out the investigations planned for the next phase.
+Sentence-level author switch detection aims to find the places in a document where one author's writing ends and another's begins. Recent systems mostly use transformer models, but simple stylometric methods are still useful where a prediction must be examined and explained. This paper evaluates a small, handcrafted approach on the PAN 2026 multi-author writing style analysis data. Each sentence is described by 14 named stylometric features and a hashed profile of character trigrams. Two neighbouring sentences are then compared through 16 features: the absolute standardised differences of the 14 features, the cosine similarity of the trigram profiles, and one overall distance. A decision tree, logistic regression and a feed-forward neural network, all written from scratch, are trained and tested on a document-disjoint split, with early stopping and threshold tuning done on a separate validation partition. On a document-disjoint evaluation partition of 259,653 sentence pairs the three models reach F1 scores of 0.426, 0.474 and 0.456. The results depend strongly on difficulty. F1 reaches 0.884 on easy pairs, where an author change usually comes with a change of topic, but on medium and hard pairs it stays below a baseline that simply calls every boundary a switch, with one small exception: the decision tree on medium pairs. An exploratory ablation shows that the character trigram similarity and the sentence length are the most useful inputs for logistic regression, and that the three readability scores overlap substantially with the sentence length. These findings suggest that the evaluated pairwise representation captures useful signals in topic-correlated cases but is not enough for reliable author-switch detection on the more difficult examples. The study provides a transparent experimental baseline and identifies richer stylistic features, contextual modelling and more robust evaluation as priorities for future work.
 \end{abstract}
 
 \section{Introduction}
 
-Authorship analysis is the branch of natural language processing concerned with identifying, verifying, or profiling the author of a text from
-patterns in how it is written, rather than from explicit metadata about who wrote it \cite{bevendorff:2026a}. A central problem in this field
-is style change detection: given a document that may contain contributions from more than one author, determine whether it is in fact
-multi authored and, if so, identify the precise positions at which the writing style, and therefore we presumptive the author based on the changes \cite{zangerle2020overview}.
+Authorship analysis is the study of who wrote a text, based on how it is written and not on information about its source \cite{bevendorff:2026a}. One important problem in this field is style change detection. Given a document that may have more than one author, the task is to decide whether this is the case and, if so, to find the exact places where the writing style changes. A change of style is then taken as a sign that the author has changed \cite{zangerle2020overview}.
 
-This is a substantially harder problem than single author attribution, which compares a disputed text against known writing samples from a small
-set of candidates. Style change detection has no such reference: it must decide from the text alone whether an internal shift in style has
-occurred using only the natural stylistic profile of each sentence segment \cite{ramnial2015authorship}. The difficulty is compounded when style
-must be separated from topic level based, since if the shift is in subject matter it is easy to detect and often correlates with a change of author,
-conflating topic segmentation with style analysis. The PAN shared task series at CLEF has progressively tightened this distinction: the task
-overview describes an natural style change detection task in which all positions of writing style change must be found from 2025 onward this is
-defined at the sentence level, with datasets organised into easy, medium, and hard difficulty levels that systematically reduce topical variety,
-so that the hard condition forces systems to rely on style alone \cite{zangerle:2026,zangerle_2026_19068843}. This project is not sorely depended on
-most accurate model as the competition is surely based on, but about learning which natural features are best to be used in this settings.
+This problem is harder than single-author attribution, where a disputed text is compared with known writing from a small set of candidates \cite{ramnial2015authorship}. In style change detection there is no reference text. The system must decide from the text alone whether the style has shifted. A second difficulty is topic. If an author change happens together with a change of subject, the change is easy to find, but the system may then be detecting topic and not style. The PAN shared tasks at CLEF try to separate the two. From 2025 the task has been set at sentence level, and the data come in easy, medium and hard levels. As the level goes from easy to hard, the topics in each document become less varied, so that on the hard level all sentences share one topic and only style is left to use \cite{zangerle:2026,zangerle_2026_19068843}.
 
-Several practical settings in which style change detection is useful specifically require an explanation and not just a decision. In forensic
-linguistics, an expert witness must point to specific, defensible linguistic evidence, since a bare probability cannot meet that evidentiary
-standard \cite{6722273}. In academic integrity work, the useful output for an investigator is not only the boundary but a stated reason,
-for example a shift in sentence length, vocabulary richness, or punctuation habits. In collaborative writing, an explainable signal of who
-wrote which section is more defensible than an opaque one when used to inform authorship credit, and in platform moderation, stylistic
-evidence that a human can inspect is preferable to an opaque flag.
+Many uses of style change detection need an explanation as well as a decision. A forensic linguist who gives evidence must point to specific language features, because a bare probability is hard to defend \cite{6722273}. In academic integrity work, a useful answer says why a boundary was flagged, for example a shift in sentence length or in punctuation habits. The same holds for the moderation of online content, where a human must be able to check the reason for a flag.
 
-\textbf{(i) Existing work.} Existing stylometric systems, including Ochab et al.'s gradient boosted, frequency based
-pipeline \cite{ochab2025styloch} and earlier PAN submissions, often rely on aggregate or document level statistics and
-provide limited analysis of sentence level transitions. Recent transformer based and graph based systems have pushed
-raw detection performance on PAN style benchmarks considerably higher than these classical stylometric
-baselines \cite{chen2023writing,alsheddi2025team}, but almost universally is at the cost of attribution (a fine tuned
-RoBERTa or DeBERTa classifier can flag a boundary with high confidence without indicating which stylistic dimension
-drove that decision).
+Existing work leaves a gap. Stylometric systems such as the gradient-boosted pipeline of Ochab et al. \cite{ochab2025styloch} are cheap and explainable, but that one was built for a different task, the detection of AI-generated text. Transformer and graph-based systems reach higher scores \cite{chen2023writing,alsheddi2025team}, but they cannot say which property of the text led to a decision. This study focuses on a small, named, pairwise set of features at sentence level and reports how it behaves on each difficulty level.
 
-\textbf{(ii) However.} Neither line of work directly targets sentence level author switch detection with a
-representation that is both transparent and pairwise in nature. Document or aggregate level stylometry, as in
-Ochab et al.'s system is explainable but coarse, while transformer based detectors are finer grained but offer
-no genuine attribution for a given boundary decision.
-
-\textbf{(iii) Therefore.} This paper adopts an explicitly interpretable position for the sentence level author switch
-problem specifically using transparent handcrafted stylometric representations that permit feature level interpretation
-for every prediction rather than trying to match transformer level accuracy. The goal is to characterise how far a
-fully interpretable, handcrafted stylometric system can go, and precisely where and why it fails.
+This paper fills that gap. Comparing neighbouring segments through absolute feature differences is not new \cite{ramnial2015authorship,singh2021writing}. The aim here is different: it is to find out how far a compact representation that is interpretable at the level of its features can go, and where and why it fails, and not to beat the best systems. The paper makes three contributions. First, it describes a 16-feature pair representation built from 14 named sentence features, a character trigram similarity and an overall distance. Second, it compares three classifiers written from scratch on easy, medium and hard pairs. Third, it reports an exploratory ablation of the feature groups and the main settings, which shows where the signal is found.
 
 \section{Problem Definition}
+\label{sec:problem}
 
-A document is treated as a sequence of sentences rather than as a single block of text, so that authorship boundaries
-can be localised precisely rather than only detected at the document level. Formally, let a document $D$ consist of $n$
-consecutive sentences $D = \{S_1, S_2, \ldots, S_n\}$. For every adjacent pair $(S_i, S_{i+1})$, the task is to predict
-a binary boundary label
+This section defines the task in a formal way and lists the questions that guide the study. A document is treated as a row of sentences and not as one block of text, so that author boundaries can be found precisely.
+
+Let a document $D$ have $n$ sentences, $D = \{S_1, S_2, \ldots, S_n\}$. For every pair of neighbouring sentences $(S_i, S_{i+1})$ the task is to predict a label
 \[
 y_i =
 \begin{cases}
@@ -108,190 +52,126 @@ y_i =
 1 & \text{if an author switch occurs between } S_i \text{ and } S_{i+1}.
 \end{cases}
 \]
-The full sequence $\{y_1, \ldots, y_{n-1}\}$ determines the authorship structure of the entire document, namely whether
-it is multi authored at all, how many authors contributed, and where each author's contiguous segments lie. Sentence
-level detection is harder than the paragraph level formulation used in earlier PAN editions because each segment carries
-only around fifteen to twenty words of stylistic evidence \cite{zangerle_2026_19068843}, and difficulty increases further
-from easy, where author switches coincide with topic changes, through medium, to hard, where all sentences in a document
-share one topic so that only style can be used \cite{zangerle2025overview}.
+The labels $\{y_1, \ldots, y_{n-1}\}$ show whether the document has more than one author and where each author's part begins and ends. Sentence-level detection is harder than the paragraph-level task of earlier years, because each sentence has only about fifteen to twenty words that can show style \cite{zangerle_2026_19068843}. It also becomes harder from the easy level, where author changes go together with topic changes, to the hard level, where all sentences share one topic \cite{zangerle2025overview}.
 
-The natural evaluation metric is the F1 score over boundary predictions because the classes are heavily imbalanced.
-Same author boundaries substantially outnumber genuine switches in realistic documents, so a majority class predictor
-can reach high accuracy while identifying no switches at all. The imbalance is treated as a first class methodological
-concern in Section 5 rather than an afterthought. This research is organised around four questions.
-\textbf{RQ1}: How well can a small, fully named set of stylometric features detect sentence level author switches, and
-how does performance change from the easy to the hard condition?
-\textbf{RQ2}: Do a decision tree, logistic regression, and a neural network models differ meaningfully on this
-representation, and what does that imply about the shape of the decision boundary?
-\textbf{RQ3}: How does class imbalance, class weighting, and decision threshold tuning affect the precision recall
-trade off?
-\textbf{RQ4}: Which features from the trained models carry the signal, and what is the gap to transformer based systems
-suggest about which parts of the problem are recoverable from surface statistics?
+Because switches are rare, F1 on the switch class is the natural measure: a model that never predicts a switch can reach high accuracy while finding nothing, so the imbalance is treated as a central part of the method (Section~\ref{sec:eval}). Four research questions guide the work. RQ1 asks how well a small set of named stylometric features can detect sentence-level switches, and how this changes from easy to hard. RQ2 asks whether a decision tree, logistic regression and a neural network differ in a meaningful way on this representation, and what that says about the shape of the decision boundary. RQ3 asks how class imbalance, class weighting and the choice of decision threshold change the balance between precision and recall. RQ4 asks which features carry the signal, and what the gap to transformer-based systems says about the parts of the task that surface statistics can recover.
 
 \section{Related Work}
+\label{sec:related}
 
-Style change detection has been studied continuously within the PAN shared task series since 2016 moving from document
-level single versus multi author classification to paragraph level boundary detection to the current sentence level
-formulation \cite{bevendorff2021overview,zangerle_2026_19068843}. A recurring methodological concern across editions
-has been the confound between topic and style. Early datasets allowed systems to succeed largely by detecting topic
-shifts in which the 2023 through 2026 editions deliberately control for through the easy, medium, and hard difficulty
-stratification \cite{zangerle2025overview}. The task overview paper for the lab as a whole situates style change
-detection alongside the other PAN 2026 tasks and motivates the shared evaluation infrastructure used across
-them \cite{zangerle:2026}. The 2026 edition additionally moves to a fan fiction derived dataset specifically to obtain
-longer, topic based, and coherent short pieces of writing while retaining precise control over authorship boundaries \cite{bevendorff:2026b}.
+This section groups earlier work by direction: the PAN task itself, classical stylometry, pairwise feature methods and neural methods. It ends with the gap that this paper addresses.
 
-Stylometric authorship analysis comes before modern natural language processing. Classic case studies, such as the
-disputed Federalist Papers established that function word and punctuation statistics can carry a detectable, largely
-unconscious authorial signature, and Jockers and Witten later gave a systematic comparison of machine learning methods
-for this kind of attribution \cite{10.1093/llc/fqq001}. Ramnial et al.\ reframed attribution as pairwise binary
-verification in which two adjacent segments are compared and a boundary is inferred if they differ enough
-stylistically \cite{ramnial2015authorship}. This is the representation adopted by the project. Singh et al.\ combined
-character n-grams, part of speech tag, function word frequencies, and vocabulary richness statistics into pairwise
-absolute feature differences and classified with logistic regression and reached an F1 score of 0.657 at the paragraph
-level on PAN 2021 data \cite{singh2021writing}. This remains the closest direct methodological precedent for the
-project system just extended to the sentence level with a broader feature set. Rios Toledo et al.\ found that higher
-order character n-grams and part of speech tag sequences outperform unigrams and are comparatively robust to topic shift
-in literary text \cite{rios2022detection}. Hossain et al.\ combined stylometric features with shallow neural classifiers
-for author attribution. Alshamasi and Menai applied ensemble k-means clustering directly to stylistic feature vectors,
-reaching an F1 score of approximately 0.49 at the sentence level without any supervision \cite{alshamasi2022ensemble},
-which is a useful unsupervised reference point and motivates including density based clustering, such as HDBSCAN as a
-comparison method in future work. Zamir et al.\ argue explicitly against stripping punctuation and stop words during
-preprocessing for this task, since they carry authorial signal that content word only pipelines would
-discard \cite{zamir2024stylometry}, a design choice retained here. Most directly relevant to the present system's
-positioning, Ochab et al.\ build a modular, non neural stylometric pipeline in which linguistic annotation feeds several
-thousand frequency features into a gradient boosted classifier presented explicitly as an inexpensive and explainable
-alternative to transformer based detectors, and reported as competitive on a related PAN authorship task \cite{ochab2025styloch}.
-The overview of PAN 2025 similarly notes that at least one competitive team combined stylometric features with sentence
-embeddings feeding a gradient boosting classifier \cite{zangerle2025overview} indicating that gradient boosted stylometric
-pipelines remain a live and effective design choice even as the field's centre of mass moves toward transformers.
+Style change detection has been part of the PAN shared tasks since 2016. It has moved from deciding whether a document has one or many authors, to finding changes between paragraphs, and now to finding changes between sentences \cite{bevendorff2021overview,zangerle_2026_19068843}. A concern in every edition has been the link between topic and style. Early data allowed systems to do well just by finding topic shifts. The easy, medium and hard levels of recent editions were designed to control for this \cite{zangerle2025overview}. The 2026 data are built from fan fiction, which gives longer and more coherent texts while keeping exact control of where authors change \cite{zangerle:2026,bevendorff:2026b}.
 
-Neural methods report the strongest raw performance on current PAN benchmarks. Chen et al.\ proposed a contrastive
-learning writing style embedding for multi author analysis \cite{chen2023writing}. Alsheddi and Menai modelled each
-sentence as a graph node and used graph convolutional networks to propagate authorship consistency signal between
-sentences for PAN 2025 \cite{alsheddi2025team}. Lin et al.\ fine tuned deep architectures for the same task family,
-and a related supervised contrastive DeBERTa variant further improved detection through contrastive pretraining
-objectives specific to style change. At PAN 2025, Rohra et al.\ fine tuned RoBERTa directly on the sentence pair
-formulation of the task \cite{rohra2025sentence}, and the ARC-NLP team reframed paragraph level style change
-detection at PAN 2023 as a natural language inference problem, learning whether two consecutive segments entail
-the same author or not \cite{kucukkaya2023arc}. Most strikingly, a PAN 2025 submission by the team named better call claude
-showed that a large language model used largely zero shot, exploiting sequential and contextual cues across a document,
-was competitive with purpose trained classifiers, while explicitly flagging that this success may partly reflect exploitation
-of document macrostructure rather than isolation of intrinsic stylistic signal, and recommending that future task
-editions control for this by testing under randomised sentence order \cite{schmidt2025team}. This observation is directly relevant to the present work's stylometric, order independent, pairwise design, which cannot exploit that kind of contextual shortcut and should therefore be measuring something closer to genuine style discrimination.
+Stylometry is older than modern language processing. Studies of disputed texts, such as the Federalist Papers, showed that word and punctuation habits carry an author's signature, and Jockers and Witten later compared several machine learning methods for this purpose \cite{10.1093/llc/fqq001}. Ramnial et al. used stylometry with machine learning for attribution \cite{ramnial2015authorship}.
 
-Across both families of prior work, The systems either optimise purely for benchmark performance without exposing which
-linguistic dimensions drove a given prediction or they use comparatively narrow, fixed stylometric feature sets without
-a systematic per group importance analysis under the sentence level, difficulty stratified conditions introduced from
-PAN 2025 onward. The gap this project targets is a stylometric pipeline broad and carefully justified enough to be a
-meaningful comparison point, instrumented specifically so that every prediction is attributable to named features, and
-evaluated with a methodology that avoids the specific pitfalls identified in review of the earlier exploratory version
-of this system.
+The closest earlier work to ours compares two segments through the absolute difference of their feature vectors. Singh et al. did this for paragraphs on PAN 2021 data. They used character n-grams, part-of-speech trigrams, function word frequencies and vocabulary richness measures, and classified the differences with logistic regression. They reached an F1 of 0.657 for the detection of changes between neighbouring paragraphs \cite{singh2021writing}. The present work follows the same idea at sentence level with a smaller and fully named feature set. Alshamasi and Menai used an unsupervised ensemble of k-means clusterings on stylistic features such as sentence length, readability and punctuation ratio, and reported an F1 of 0.49 for sentence-level changes \cite{alshamasi2022ensemble}. This is a useful unsupervised reference, and density-based clustering such as HDBSCAN \cite{campello2013density} is a natural comparison for later work. Zamir et al. also looked at special characters such as punctuation, which are usually removed in preprocessing, and tested the effect of keeping them \cite{zamir2024stylometry}; we keep punctuation and capitalisation for the same reason. Oloo et al. proposed a feature set for style change detection at document and sentence level, and our features follow it in large part \cite{oloo2022optimal}. Ochab et al. built a non-neural pipeline in which language annotation feeds several thousand n-gram frequency features into a gradient-boosted classifier. They present it as a cheap and explainable alternative to neural detectors, but they applied it to the PAN task of detecting AI-generated text \cite{ochab2025styloch}.
+
+Neural methods give the best results on current PAN data. Chen et al. learned a writing style embedding with contrastive learning \cite{chen2023writing}. Alsheddi and Menai treated each sentence as a node in a graph and used graph convolutional networks to pass information between sentences \cite{alsheddi2025team}. Rohra et al. fine-tuned RoBERTa on sentence pairs \cite{rohra2025sentence}, and K{\"u}{\c{c}}{\"u}kkaya et al. treated paragraph-level style change as a natural language inference problem \cite{kucukkaya2023arc}. Schmidt et al. built a sequential sentence pair classifier in which a pre-trained language model encodes each sentence and a recurrent layer adds the context of the whole document. They reported macro-F1 scores of 0.923, 0.828 and 0.724 on the easy, medium and hard PAN 2025 test sets, and found that it beat a zero-shot large language model baseline \cite{schmidt2025team}. That result shows how much document context can add, and our pairwise design does not use any.
+
+In summary, earlier systems either aim only at benchmark performance, without showing which language features drove a decision, or they use fixed feature sets without a study of each feature group at sentence level and by difficulty. The gap this paper targets is a compact and carefully justified feature set that is easy to read and is evaluated by difficulty level, with an ablation that shows which groups matter.
 
 \section{Proposed System}
+\label{sec:system}
+
+This section describes the system from raw text to a decision. Figure~\ref{fig:pipeline} gives the overview. The system was written from scratch in Java, with no external machine learning library, so that every step can be inspected. Training and prediction use the same steps, so a reported result matches what the system does when it is used.
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}[
-  node distance=0.35cm,
-  box/.style={rectangle, draw, rounded corners, minimum width=5.4cm, minimum height=0.75cm, align=center, font=\small},
-  arr/.style={-Stealth}
+  node distance=0.45cm,
+  box/.style={rectangle, draw, rounded corners, align=center, font=\scriptsize, text width=1.7cm, minimum height=0.95cm, inner sep=3pt},
+  arr/.style={-{Stealth[length=1.6mm]}}
 ]
-\node[box] (pair) {Adjacent sentence pair $(S_i, S_{i+1})$};
-\node[box, below=of pair] (feat) {Sentence features $x_i$: 9 scalars + 256 hashed trigram buckets};
-\node[box, below=of feat] (z) {Standardise scalars (training statistics)};
-\node[box, below=of z] (pv) {Pair vector $p_i$: 9 $|\Delta z|$ + cosine + distance (11)};
-\node[box, below=of pv] (clf) {Classifier: tree / logistic / neural network};
-\node[box, below=of clf] (thr) {Decision threshold (tuned on validation)};
-\node[box, below=of thr] (pred) {Prediction + named feature contributions};
-\foreach \a/\b in {pair/feat, feat/z, z/pv, pv/clf, clf/thr, thr/pred}
-  \draw[arr] (\a) -- (\b);
+\node[box] (a) {Two neighbouring sentences};
+\node[box, right=of a] (b) {Features of each sentence};
+\node[box, right=of b] (c) {16 pair features};
+\node[box, right=of c] (d) {Classifier and threshold};
+\node[box, right=of d] (e) {Switch or no switch};
+\foreach \x/\y in {a/b, b/c, c/d, d/e} \draw[arr] (\x) -- (\y);
 \end{tikzpicture}
-\caption{Overview of the sentence level author switch detection pipeline.}
+\caption{The pipeline from a pair of sentences to a decision.}
 \label{fig:pipeline}
 \end{figure}
 
-\subsection{Implementation}
-The system is written in Java 25 (Temurin) and deliberately uses no external machine learning library: the feature extractor, the decision tree, logistic regression, and the neural network are all implemented from scratch, so every step from raw text to prediction can be inspected. The same \texttt{data}, \texttt{features}, and \texttt{models} packages are used by two front ends: a command line trainer (\texttt{Main.java}, launched by \texttt{build.sh} or \texttt{build.bat}, needing only \texttt{javac} and \texttt{java}) and a Spring Boot web application with Inspect, Explore, Train, Predict, and Results pages. Training, model persistence, and prediction share one code path, and trained models and metrics are written to the same files the web application reads, so a reported result corresponds to the exact artefact used for prediction. As a consistency check, the memory efficient feature matrix builder recomputes 200 pairs the original way and confirms identical output.
-
 \subsection{Sentence features}
-Fig.~\ref{fig:pipeline} summarises the pipeline. Following Zamir et al.\ \cite{zamir2024stylometry}, punctuation, stop words, and capitalisation are retained rather than stripped. Each sentence $S_i$ is mapped by $f$ to a vector
+
+Each sentence is turned into 14 named numbers and a hashed profile of character trigrams. Punctuation, common words and capital letters are kept and not removed, because they can carry an author's habits \cite{zamir2024stylometry}. The feature set follows the one proposed by Oloo et al. \cite{oloo2022optimal} in large part. For a sentence $S_i$ the vector is
 \begin{equation}
-x_i = f(S_i) = [\,x_i^{(1)},\ldots,x_i^{(9)},\; h_i\,],
+x_i = f(S_i) = [\,x_i^{(1)},\ldots,x_i^{(14)},\; h_i\,],
 \label{eq:sentvec}
 \end{equation}
-where $x_i^{(1..9)}$ are the named scalar features of Table~\ref{tab:features} and $h_i\in\mathbb{R}^{256}$ is a hashed character trigram profile described below. The scalars are z-score standardised using means and standard deviations fitted on the training sentences only.
+where $x_i^{(1..14)}$ are the named features in Table~\ref{tab:features} and $h_i\in\mathbb{R}^{256}$ is the trigram profile described in the next subsection. The 14 numbers are standardised with a mean and standard deviation that are worked out on the training sentences only, and the same values are then applied unchanged to the validation and evaluation sentences. The only safeguard in this step is that a feature with no spread at all is given a standard deviation of 1; no other outlier handling is applied to the named features, except that the neural network clips its inputs to the range $[-5,5]$.
 
 \begin{table}[t]
 \centering
-\caption{Stylometric features used in the trained models. Index refers to the pair vector position used in Section~\ref{sec:results}.}
+\caption{The 14 named sentence features. The index is the zero-based position of the feature in the pair vector (the equations count from 1, so feature $x^{(k)}$ has index $k-1$). Here $n$ is the number of words, $s$ the mean number of syllables per word, and $c$ the number of words with three or more syllables.}
 \label{tab:features}
-\begin{tabular}{p{0.6cm}p{3.1cm}p{3.6cm}p{3.6cm}}
+\tablefont
+\begin{tabular}{p{0.5cm}p{2.7cm}p{4.3cm}p{3.5cm}}
 \toprule
-\textbf{Idx} & \textbf{Feature} & \textbf{Definition} & \textbf{Motivation} \\
+\textbf{Idx} & \textbf{Feature} & \textbf{Definition} & \textbf{Why it is used} \\
 \midrule
-0 & Word length & $\log(1+\#\text{words})$ & Fluency, segment length \cite{10.1093/llc/fqq001} \\
-1 & Character length & $\log(1+\#\text{chars})$ & As above \\
-2 & Frequent word ratio & share of tokens in the 10,000 most common English words & Function word like habit \cite{6722273} \\
-3 & Punctuation density & count of \texttt{! ; , . ? ' "} per character & Unconscious habit \cite{zamir2024stylometry} \\
+0 & Log word count & $\log(1+\#\text{words})$ & Sentence length \cite{10.1093/llc/fqq001} \\
+1 & Log character count & $\log(1+\#\text{characters})$ & Sentence length \\
+2 & Common-word proportion & share of words among the 10,000 most common English words & Habit in common words \cite{6722273} \\
+3 & Punctuation density & count of 18 punctuation marks per character & Punctuation habit \cite{zamir2024stylometry} \\
 4 & Digit ratio & digits per character & Formatting habit \\
-5 & Uppercase ratio & uppercase letters per character & Capitalisation habit \\
-6 & Average word length & letters per word & Vocabulary register \\
-7 & Mean TF-IDF & mean TF-IDF of tokens, IDF from training sentences & Vocabulary rarity \\
-8 & Emotion score & NRC lexicon \cite{mohammad2013crowdsourcing}, length normalised & Affective tone \\
+5 & Uppercase ratio & capital letters per character & Capitalisation habit \\
+6 & Mean characters per word & letters per word & Vocabulary level \\
+7 & Mean TF-IDF & mean TF-IDF of the words (IDF from training sentences) & How rare the words are \\
+8 & Emotion score & word-emotion lexicon \cite{mohammad2013crowdsourcing}, length normalised & Emotional tone \\
+9 & Type-token ratio & different words / all words & Vocabulary richness \cite{oloo2022optimal} \\
+10 & Punctuation variety & different marks used / 18 & Punctuation habit \\
+11 & Flesch Reading Ease & $206.835-1.015\,n-84.6\,s$ & Readability \cite{flesch1948new} \\
+12 & Gunning Fog index & $0.4\,(n+100\,c/n)$ & Readability \cite{gunning1952technique} \\
+13 & Flesch-Kincaid grade & $0.39\,n+11.8\,s-15.59$ & Readability \cite{kincaid1975derivation} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Two points should be noted about Table~\ref{tab:features}. First, feature 2 uses a list of frequent words (Google 10,000 English) rather than a curated closed class function word list, so it only approximates the classical function word signal. Second, part of speech, readability, type token ratio, and positional feature groups are not implemented in the trained system, and are therefore left to future work. The Explore page shows a sentence position value for each pair, but it is not part of the trained vector.
+The 18 punctuation marks counted by features 3 and 10 are the full stop, comma, semicolon, colon, exclamation mark, question mark, apostrophe, double quote, round, square and curly brackets, hyphen, en dash, em dash and ellipsis. Syllables are counted by a simple rule that counts groups of the vowels a, e, i, o and u, so a silent final e is counted, a word with no such vowel has no syllables, and complex words in the Gunning Fog index are all words with three or more syllables, with none of the usual exceptions. A sentence with no words gets a value of zero for all three readability scores. These are deviations from the textbook definitions. Three points about the table should be noted. First, feature 2 uses a list of common words and not a closed list of function words, so it is only a rough form of the classical function word signal. Second, features based on part of speech, and on the position of the sentence in the document, are not part of the system and are left for future work. Third, the three readability scores were designed for whole passages, but here each is worked out on one sentence. For a single sentence the average sentence length in each formula is just the word count $n$. All three scores therefore contain the sentence length, and they also depend on syllable counts and on the number of long words, so they are not the same as the length. They are expected to overlap strongly with feature 0 and with each other. Section~\ref{sec:results} measures how much new information they add.
 
-\subsection{Hashed character n grams and scalability}
-Rios Toledo et al.\ \cite{rios2022detection} and Ochab et al.\ \cite{ochab2025styloch} show that character n grams are a strong, topic robust authorship signal, but the usual formulation builds an explicit n gram vocabulary. Ochab et al.\ feed several thousand frequency features to a gradient boosted classifier. That design scales badly to real world corpora: the vocabulary of character and word n grams grows with corpus size and with n, every new document may require extending or refitting the feature space, and the feature matrix grows with the vocabulary, so both the time to generate features and the memory needed to hold them rise with data volume. For a deployed tool that must process large, previously unseen collections, this becomes the dominant cost.
+\subsection{Hashed character trigrams}
 
-The project instead uses the hashing trick. Each character trigram of a sentence is mapped to one of $B=256$ buckets by a hash of the trigram, counts are normalised by the number of trigrams, and the result is $h_i$. This has three properties relevant to scale. (i) The vector length is fixed at 256 regardless of corpus size, so memory per sentence is constant. (ii) No vocabulary pass or dictionary is needed, so unseen words and trigrams are handled automatically and features can be computed in a single streaming pass, in time linear in sentence length. (iii) Sentences are processed independently, so extraction parallelises trivially. The costs are hash collisions, which merge unrelated trigrams into one bucket, and the loss of bucket level interpretability, since a bucket is not a readable unit. The profile is therefore exposed to the model only as a single, readable quantity: the cosine similarity between $h_i$ and $h_{i+1}$, i.e.\ ``how similar are the character level profiles of the two sentences''. This compression reduces the pair vector from 267 columns (9 + 2 + 256 bucket differences) to 11, roughly a 24 fold reduction in matrix width, and all reported results use the 11 column form; the 267 column form is implemented but was not used. The project has not benchmarked wall clock extraction time against an explicit n gram vocabulary, so the scalability claim here is structural rather than measured; doing so is listed under future work. The mean TF-IDF feature is the one remaining component that needs a corpus level pass, to build document frequencies.
+Character n-grams are a common style marker in earlier work \cite{singh2021writing,rios2022detection,ochab2025styloch}, but the usual way to use them is to build a list of all n-grams in the corpus. Such a list grows with the size of the corpus and with $n$, and a new document may need the feature space to be changed. Hashing is a fixed-size alternative that avoids storing the list at all. Whether this gives a practical gain in time or memory has not been measured here.
 
-\subsection{Pairwise representation and classifiers}
-For each boundary $(S_i,S_{i+1})$ the pair vector $p_i = g(x_i,x_{i+1})\in\mathbb{R}^{11}$ is
+The system uses the hashing trick instead. Each character trigram of a sentence is mapped to one of $B=256$ buckets by a hash, the counts are divided by the number of trigrams, and the result is $h_i$. This has three advantages. The vector always has 256 values, so the memory per sentence is fixed. No list of n-grams is needed, so new words and trigrams are handled automatically and the features can be built in one pass that takes time in proportion to the sentence length. There are two costs. Hash collisions put unrelated trigrams in one bucket, and a bucket cannot be read as a meaningful unit. For this reason the profile is shown to the classifiers as one number only: the cosine similarity between $h_i$ and $h_{i+1}$, which says how similar the character-level profiles of the two sentences are. A prediction can therefore be explained through this similarity, but not through the particular trigrams behind it, so this part of the representation is only partly interpretable.
+
+Using one number instead of 256 differences shrinks the pair vector from 272 columns (14 + 2 + 256) to 16, which is about 17 times narrower, and all results in this paper use the 16-column form. The scalability claim is structural and not measured: no experiment in this paper shows a gain in speed or memory, because the time and memory against an explicit n-gram list have not yet been compared. This is left for future work. Only the mean TF-IDF feature still needs one pass over the corpus to count document frequencies.
+
+\subsection{Pair representation and classifiers}
+
+For every boundary $(S_i,S_{i+1})$ the pair vector $p_i = g(x_i,x_{i+1})\in\mathbb{R}^{16}$ is
 \begin{equation}
 \begin{split}
-p_i &= \big[\,|z_i^{(1)}-z_{i+1}^{(1)}|,\ldots,|z_i^{(9)}-z_{i+1}^{(9)}|,\ \cos(h_i,h_{i+1}),\ d_i\,\big],\\
-d_i &= \sqrt{\tfrac{1}{9}\textstyle\sum_{k=1}^{9}\big(z_i^{(k)}-z_{i+1}^{(k)}\big)^2},
+p_i &= \big[\,|z_i^{(1)}-z_{i+1}^{(1)}|,\ldots,|z_i^{(14)}-z_{i+1}^{(14)}|,\ \cos(h_i,h_{i+1}),\ d_i\,\big],\\
+d_i &= \sqrt{\tfrac{1}{14}\textstyle\sum_{k=1}^{14}\big(z_i^{(k)}-z_{i+1}^{(k)}\big)^2},
 \end{split}
 \label{eq:pairvec}
 \end{equation}
-where $z$ denotes the standardised scalar. Only the absolute difference form \cite{ramnial2015authorship,singh2021writing} is implemented; the concatenation and union forms are not. A classifier then maps $p_i$ to a label, $\hat{y}_i = C(p_i)$. Three from scratch classifiers are compared:
-\begin{itemize}
-\item \textbf{Decision tree}: Gini impurity, maximum depth 5, minimum 20 samples to split and 5 per leaf, class weighted, threshold fixed at 0.5. Its rules are directly readable.
-\item \textbf{Logistic regression}: batch gradient descent, 10,000 iterations, learning rate 0.6, class weighted. Its 11 weights are directly readable.
-\item \textbf{Neural network}: 11--128--64--32--16--8--1, ReLU hidden layers, sigmoid output, plain mini batch stochastic gradient descent (learning rate 0.001, batch 64, no momentum or adaptive step), L2 penalty 0.01, dropout 0.2, feature clipping to $[-5,5]$, class weighted loss, at most 60 epochs with early stopping on validation loss (patience 8).
-\end{itemize}
-A random forest is also implemented in the code base but was not run for this paper. Gradient boosted models and scikit-learn baselines were not built, so the from scratch models are the whole comparison.
+where $z$ is the standardised value of a feature. The distance $d_i$ is a root-mean-square difference over the 14 named features only, and not over the trigram profile. It is worked out from the first 14 values, so it adds no information that they do not already hold. Only the absolute difference form is used \cite{ramnial2015authorship,singh2021writing}. A classifier $C$ then maps $p_i$ to a label, $\hat{y}_i = C(p_i)$.
 
-\begin{algorithm}[t]
-\caption{End-to-end training and prediction pipeline}
-\label{alg:pipeline}
-\begin{algorithmic}[1]
-\Require Training pairs $\{(S_i,S_{i+1},y_i)\}$, validation pairs, test pairs
-\State Fit IDF table and scalar means/standard deviations on training sentences
-\For{each pair}
-    \State $x_i \gets f(S_i)$, $x_{i+1}\gets f(S_{i+1})$ \Comment{Eq.~\eqref{eq:sentvec}}
-    \State $p_i \gets g(x_i,x_{i+1})$ \Comment{Eq.~\eqref{eq:pairvec}}
-\EndFor
-\State Train $C$ on training pairs with inverse frequency class weights
-\State Choose threshold $\tau$ maximising F1 on the validation half
-\State Report metrics on the held out test half using $\tau$
-\State \Return model, $\tau$, metrics
-\end{algorithmic}
-\end{algorithm}
+Three classifiers written from scratch are compared. The decision tree uses Gini impurity, a maximum depth of 5, at least 20 samples to split a node and 5 in each leaf, class weights, and a fixed threshold of 0.5; its rules can be read directly. Logistic regression uses batch gradient descent with 10,000 iterations, a learning rate of 0.6 and class weights, and its 16 weights can be read directly. The neural network has the layers 16--128--64--32--16--8--1 with ReLU units in the hidden layers and a sigmoid output. It is trained with mini-batch gradient descent (learning rate 0.001, batch size 64, no momentum), an L2 penalty of 0.01, dropout of 0.2, feature clipping to the range $[-5,5]$, a class-weighted loss, and at most 60 epochs with early stopping on the validation loss (patience 8).
+
+Training uses the IDF table and the feature means and standard deviations worked out on the training sentences, builds the pair vectors, and trains each classifier with class weights that are the inverse of the class frequencies. For logistic regression and the neural network, the decision threshold $\tau$ is then chosen to give the best F1 on the model-selection partition, and the scores on the evaluation partition are worked out with that threshold.
+
+\subsection{Explaining a prediction}
+
+A reason for choosing named features is that each decision can be traced back to them. For the decision tree, a prediction is the list of yes-or-no tests that the pair passes on the way to a leaf, for example whether the difference in character length is larger than a stated value. For logistic regression, the score of a pair is a bias plus the sum of each pair feature multiplied by its weight, so each term shows how much one named difference pushed the decision towards a switch or away from it. Because the 14 differences are standardised, their weights can be compared with one another, but the trigram cosine is not standardised, so its weight is on another scale. The neural network cannot be read in this way. Its output depends on all 16 inputs through several layers, so it is the least interpretable of the three.
 
 \section{Evaluation Methodology}
 \label{sec:eval}
 
-\textbf{Data.} The project uses the PAN 2026 multi-author writing style analysis data \cite{zangerle_2026_19068843}, fanfiction derived and split into easy, medium, and hard difficulty. Table~\ref{tab:data} gives the training set statistics. The switch rate differs sharply by difficulty (30.5\%, 4.4\%, 20.9\%), and overall 14.3\% of the 2,439,074 training pairs are switches.
+This section explains the data, the way the data were split, how the class imbalance was handled, the measures used, and how the ablation study was run.
+
+\textbf{Data.} The study uses the PAN 2026 multi-author writing style analysis data \cite{zangerle_2026_19068843}, which are taken from fan fiction and come in easy, medium and hard levels. Table~\ref{tab:data} gives the training set. The switch rate differs a lot between the levels (30.5\%, 4.4\% and 20.9\%), and 14.3\% of all 2,439,074 training pairs are switches.
 
 \begin{table}[t]
 \centering
-\caption{Training set statistics per difficulty (10,500 problems each).}
+\caption{Training set per difficulty level (10,500 problems each).}
 \label{tab:data}
+\tablefont
 \begin{tabular}{lrrrr}
 \toprule
 \textbf{Difficulty} & \textbf{Sentences} & \textbf{Pairs} & \textbf{Switches} & \textbf{Switch rate} \\
@@ -305,92 +185,174 @@ All    & 2,470,574 & 2,439,074 & 347,996 & 14.27\% \\
 \end{tabular}
 \end{table}
 
-\textbf{Splits.} Training uses all three difficulties combined. Because the official test labels are not available to us, the official validation set is divided into two halves by problem, using a fixed seed shuffle, so no document contributes to both halves. The first half (264,150 pairs, 14.51\% switches) is used for early stopping and threshold selection; the second half (259,653 pairs, 14.06\% switches) is the held out \emph{test} split, touched only once for final numbers. All 2,439,074 training pairs are used. Training documents are disjoint from both, so no document specific style leaks across splits. A single fixed, document disjoint split is therefore used instead of grouped cross validation, which is cheaper but gives no variance estimate.
+\textbf{Partitions.} Three partitions are used. The training set is the official training data with all three levels together, and all 2,439,074 pairs are used. The official test labels are not available to us, so the official validation set is split into two halves by problem with a fixed random seed, and no document appears in both halves. The first half (264,150 pairs, 14.51\% switches) is the model-selection partition. It is used for early stopping and for choosing the threshold. The second half (259,653 pairs, 14.06\% switches) is the document-disjoint evaluation partition. It is not the official test set, and it is called the evaluation partition throughout, including the tables. The training and evaluation partitions contain different documents, which prevents overlap at document level. However, this split does not necessarily prevent the same authors from appearing in more than one partition, because author identity was not checked, so independence at author level cannot be assumed. Model selection and threshold tuning use the first half, but the ablation and settings studies report the score of every setting they run on the evaluation partition. It should therefore not be treated as an untouched final test set, and the comparisons in this paper are exploratory. Final confirmation needs data that have not influenced later experimental decisions.
 
-\textbf{Imbalance handling.} Loss is weighted by inverse class frequency (weights 0.583 for same author and 3.505 for switch). For the logistic regression and neural network the decision threshold is swept on the validation half to maximise F1; the tree keeps 0.5. SMOTE \cite{chawla2002smote} and resampling were not used.
+\textbf{Imbalance.} The loss is weighted by the inverse class frequency, with weights of 0.583 for the same-author class and 3.505 for the switch class. Class weighting and threshold tuning are two separate things and are looked at separately in Section~\ref{sec:results}. The threshold of logistic regression and of the neural network is searched on the model-selection partition to give the best F1. The threshold of the decision tree is fixed beforehand at 0.5. Oversampling methods such as SMOTE \cite{chawla2002smote} were not used.
 
-\textbf{Metrics.} Accuracy, precision, recall, F1 for the switch class, and balanced accuracy, overall and per difficulty. Accuracy is always shown against the majority class baseline, because a model that never predicts a switch already scores 85.9\% on the test split.
+\textbf{Measures.} The measures are accuracy, precision, recall and F1 for the switch class, and balanced accuracy, all given overall and by difficulty. Let TP, FP, TN and FN be the numbers of true positives, false positives, true negatives and false negatives, where a positive is a switch. Then precision is $P = TP/(TP+FP)$, which is the share of flagged boundaries that are real switches, and recall is $R = TP/(TP+FN)$, which is the share of real switches that are found. F1 is the harmonic mean of the two, $F_1 = 2PR/(P+R)$. Balanced accuracy is the mean of the recall on the switch class and the recall on the same-author class, $\tfrac{1}{2}\big(TP/(TP+FN) + TN/(TN+FP)\big)$, so that a model that always predicts one class scores 0.5 whatever the class balance. Accuracy is always read against the majority-class baseline, because a model that never predicts a switch already scores 85.9\% on the evaluation partition. F1 is worked out in the same way for each difficulty level on the pairs of that level, using the threshold chosen for all levels together.
+
+\textbf{Ablation.} The ablation was run by a program that builds the features once and then runs each experiment on a chosen set of columns of the pair matrix. The overall distance is worked out again from the columns that are kept, so a removed group is also gone from it (when fewer than two features remain, the distance is left out because it would repeat one column). The 14 named features form 12 groups, and the trigram cosine forms a thirteenth (Table~\ref{tab:ablation}). For every model the study runs two kinds of experiment. In the first, one group is left out (called ``all minus G''). In the second, only one group is kept (``only G''). The importance of a group is the F1 of the full model minus the F1 without the group. The study also changes one setting at a time from the baseline: the depth, the minimum samples and the minimum impurity decrease of the tree, the learning rate and number of iterations of logistic regression, and class weighting for both. The threshold is searched again on the model-selection partition in every run, and settings are ranked by validation F1. All random choices (the split of the validation set and the training of the classifiers) use a fixed seed of 42. The 0.005 mark below is a practical rule for what to highlight and not a statistical test. The ablation is exploratory. Each run uses one seed and the whole training set, so differences below 0.005 F1 are called negligible, which means only that they cannot be told apart from noise here, and not that the group adds nothing. The score of a group alone and its extra value in the full model are reported separately, because related groups can hide each other.
 
 \section{Results}
 \label{sec:results}
 
-All three models were trained on the complete training set of 2,439,074 pairs. Table~\ref{tab:overall} reports the held out test results. The models are close: F1 ranges from 0.435 (tree) to 0.456 (logistic regression), and balanced accuracy from 0.661 to 0.669. Logistic regression is best on F1 and balanced accuracy, the neural network has the highest precision (0.562) and accuracy (0.871), and the tree has the highest recall (0.410). The neural network is not better than the linear model. Logistic regression converged: its training loss reaches 0.58691 by about iteration 8,400 and the last 5,000 iterations change it by roughly $3\times10^{-5}$, so more iterations would not help. This points to a limit in the 11 features rather than in model capacity or training length.
+This section gives the results in four parts: the overall scores, the scores by difficulty, the ablation of the feature groups, and the effect of the main settings.
+
+\subsection{Overall performance}
+
+All three models were trained on the full training set. Table~\ref{tab:overall} gives the scores on the evaluation partition. F1 runs from 0.426 for the decision tree to 0.474 for logistic regression, and balanced accuracy from 0.667 to 0.676. Logistic regression has the best F1, precision (0.600) and accuracy (0.878). The decision tree has the highest recall (0.476) and balanced accuracy (0.676) but the lowest precision (0.385). The comparison is between the evaluated configurations, with different threshold procedures, and not a definitive ranking of the three algorithms. The neural network that was tested does not do better than logistic regression. Logistic regression has also converged: the settings study below shows that 5,000 iterations give the same F1 as 10,000. This does not show that a more complex model can never help, since changing one setting of the tree does raise its F1 (Section~\ref{sec:results}). It does suggest that richer features may be worth more than further tuning of these models on the current 16 features.
 
 \begin{table}[t]
 \centering
-\caption{Held out test results (259,653 pairs), all difficulties, models trained on all 2,439,074 training pairs. Majority baseline accuracy is 0.8594.}
+\caption{Results on the evaluation partition (259,653 pairs), all difficulty levels, for the 16-feature models. The decision tree uses a fixed rule and has no tuned threshold. The accuracy of always predicting the majority class is 0.8594.}
 \label{tab:overall}
-\begin{tabular}{lccccccc}
+\tablefont
+\begin{tabular}{lcccccc}
 \toprule
-\textbf{Model} & \textbf{Thr.} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Rec.} & \textbf{F1} & \textbf{Bal.\ Acc.} \\
+\textbf{Model} & \textbf{Threshold} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{Balanced acc.} \\
 \midrule
-Decision tree       & 0.50 & 0.8499 & 0.4622 & 0.4104 & 0.4348 & 0.6661 \\
-Logistic regression & 0.68 & 0.8686 & 0.5457 & 0.3915 & 0.4559 & 0.6691 \\
-Neural network      & 0.66 & 0.8708 & 0.5620 & 0.3682 & 0.4449 & 0.6606 \\
+Decision tree       & --   & 0.8191 & 0.3848 & 0.4759 & 0.4255 & 0.6756 \\
+Logistic regression & 0.69 & 0.8776 & 0.5997 & 0.3916 & 0.4738 & 0.6744 \\
+Neural network      & 0.66 & 0.8725 & 0.5706 & 0.3798 & 0.4560 & 0.6665 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Reading the metrics.} For the tree, of 32,420 pairs flagged as switches 14,986 are real (precision 0.462), and of 36,517 real switches 14,986 are found (recall 0.410). Accuracy is not informative here: a classifier that never predicts a switch scores 0.8594, and only logistic regression (0.8686) and the neural network (0.8708) exceed it, and only marginally. The tree is below it (0.8499) because class weighting makes it over predict switches at a fixed threshold of 0.5.
-
-\textbf{Threshold tuning matters (RQ3).} With the default 0.5 threshold, logistic regression on the validation half scored accuracy 0.725, precision 0.284, recall 0.589, F1 0.383. Tuning to 0.68 raised validation F1 to 0.472 and accuracy to 0.868, and test F1 was 0.456. Class weighting pushes the models to over predict switches, so a higher threshold recovers precision at the cost of recall. The tree keeps 0.5, so its accuracy and precision are not directly comparable with the other two models.
-
-\textbf{Results depend almost entirely on difficulty (RQ1).} Table~\ref{tab:diff} shows the breakdown. On easy pairs, where author changes coincide with topic changes, all models are strong (F1 0.848 to 0.872, balanced accuracy 0.873 to 0.897), with very high precision for the linear and neural models (0.96). On medium and hard pairs balanced accuracy is between 0.499 and 0.515, indistinguishable from chance. The overall F1 of about 0.45 is therefore an average of a good easy result and a near chance result on the 78\% of test pairs that are medium or hard (139,254 and 63,714 pairs against 56,685 easy).
+Accuracy tells us little here. A classifier that never predicts a switch scores 0.8594, and only logistic regression (0.8776) and the neural network (0.8725) beat it, and only by a small margin. The decision tree is below it (0.8191) because class weighting makes it predict too many switches at its fixed threshold of 0.5, which also explains its high recall and low precision. Table~\ref{tab:baselines} gives two simple reference points worked out from the class counts, and they should not be confused. The majority-class baseline always predicts the same author, so it has an accuracy of 0.8594 and finds no switches. The always-switch baseline is a diagnostic reference and not a useful operating system. It flags every boundary, so its recall is 1.000, its precision equals the switch rate of 0.1406, and its F1 is 0.247. The thresholds in Table~\ref{tab:overall} are the values that gave the best F1 on the model-selection partition, and the scores in the same table are the results of those thresholds on the evaluation partition.
 
 \begin{table}[t]
 \centering
-\caption{Held out test F1 / balanced accuracy per difficulty. The last row is the F1 of a trivial classifier that always predicts ``switch'', computed from the class counts.}
+\caption{Trivial baselines on the evaluation partition (14.06\% switches).}
+\label{tab:baselines}
+\tablefont
+\begin{tabular}{lccc}
+\toprule
+\textbf{Baseline} & \textbf{Accuracy} & \textbf{F1 (switch)} & \textbf{Balanced acc.} \\
+\midrule
+Always predict same author & 0.8594 & 0.000 & 0.500 \\
+Always predict switch      & 0.1406 & 0.247 & 0.500 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Threshold tuning and class weighting have different effects. Class weighting pushes a model to predict more switches, and a higher threshold then wins back precision at the cost of recall. In the logistic regression runs tested here, class weighting gives no meaningful improvement once the threshold is tuned. Logistic regression trained without class weights and with a tuned threshold of 0.31 reaches a validation F1 of 0.4903 and an evaluation F1 of 0.4748, against 0.4885 and 0.4738 with weights and a threshold of 0.69. The decision tree keeps its threshold at 0.5, while the other two models have tuned thresholds, so differences between the tree and the other models mix the effect of the model with that of the threshold. A tree with a validation-tuned threshold was not run. The weighting does matter for the tree. Without weights it is much more careful, with precision 0.799, recall 0.296 and accuracy 0.890, and its evaluation F1 is about the same (0.4315 against 0.4255), but its F1 on hard pairs falls to 0.005. The weighted tree has the higher validation F1 (0.4423 against 0.4392), so it stays as the declared baseline.
+
+\subsection{Performance by difficulty}
+
+The scores depend almost completely on the difficulty level (Table~\ref{tab:diff}). On easy pairs, where an author change usually comes with a change of topic, all three models do well, with F1 from 0.867 to 0.884. On medium and hard pairs F1 is only between 0.024 and 0.125. Apart from the decision tree on medium pairs (0.098 against 0.085), it is always below the F1 of a classifier that calls every boundary a switch. The overall F1 of about 0.45 is therefore an average of a good easy result and a poor result on the 78\% of test pairs that are medium or hard (139,254 and 63,714 pairs, against 56,685 easy pairs). The tree scores higher on hard pairs than the other two models (0.125), but this fits its habit of predicting too many switches better than it fits real skill at telling authors apart. Balanced accuracy, precision and recall by difficulty were not recorded in the ablation output, so the comparison with the always-switch baseline is the evidence for the medium and hard levels.
+
+\begin{table}[t]
+\centering
+\caption{F1 on the evaluation partition by difficulty level. The last row is the F1 of a classifier that always predicts a switch, worked out from the class counts.}
 \label{tab:diff}
+\tablefont
 \begin{tabular}{lccc}
 \toprule
 \textbf{Model} & \textbf{Easy} & \textbf{Medium} & \textbf{Hard} \\
 \midrule
-Decision tree       & 0.872 / 0.897 & 0.067 / 0.503 & 0.057 / 0.502 \\
-Logistic regression & 0.869 / 0.890 & 0.078 / 0.515 & 0.040 / 0.503 \\
-Neural network      & 0.848 / 0.873 & 0.058 / 0.503 & 0.027 / 0.499 \\
+Decision tree       & 0.884 & 0.098 & 0.125 \\
+Logistic regression & 0.883 & 0.066 & 0.027 \\
+Neural network      & 0.867 & 0.053 & 0.024 \\
 \midrule
-Always ``switch'' (F1 only) & 0.458 & 0.085 & 0.349 \\
+Always predict switch & 0.458 & 0.085 & 0.349 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-An important sanity check is the last row. On medium and hard pairs, all three models score \emph{below} the F1 of a classifier that flags every boundary as a switch (0.085 and 0.349). The models were tuned for the mixed, overall distribution, and on hard pairs recall collapses to 1.4 to 3.2\%. On topic controlled data the models have not learned a usable switch signal, and any deployment on such data would need a difficulty specific threshold and, more importantly, better features.
+The last row of the table is an important check. Under the present features and thresholds, the scores on medium and hard pairs do not consistently go above the always-switch reference. The models therefore do not yet add enough value there. Any use on data like the medium and hard subsets would need a threshold for each level and, more importantly, better features.
 
-\textbf{What the models used.} The trained models are readable. The tree's root splits on the character length difference (feature 1), then on the average word length difference (feature 6), and the trigram cosine similarity (feature 9) appears at nearly every level. Only five of the eleven features are used at all (length in words and characters, punctuation density, average word length, and the trigram cosine); depth 5 allows at most 15 splits, and several splits end in two leaves of the same class, so the tree is effectively smaller than its shape suggests. A single depth limited tree is also a fragile guide to feature importance, since a different training sample can select different features. The logistic regression uses all 11 features and gives the largest weight to the trigram cosine (feature 9, $-4.71$, so more similar profiles mean fewer switches), followed by the character length difference (feature 1, $+0.99$) and the overall distance (feature 10, $+0.72$); the frequent word ratio and punctuation density differences receive weights near zero. Weights are not directly comparable across features, since the cosine is not standardised. Both models thus agree that the signal is dominated by \emph{how different the two sentences are in length and character level profile}. These are exactly the properties that also change when the topic or scene changes, which is consistent with the strong easy result and the collapse on medium and hard. This reading comes from model structure and is not a controlled ablation.
+\subsection{Feature group ablation}
 
-\textbf{Limitations.} (i) A single split, no confidence intervals, and a test split drawn from the official validation set. (ii) Only 11 pair features; the 256 bucket differences were not used. (iii) No hyperparameter search was reported for the final table beyond the fixed settings above; in particular the tree depth is fixed at 5. (iv) Each boundary is classified independently, discarding document context. (v) No comparison with transformer systems on the same split has been run. (vi) Some training sentences are extreme outliers (the maximum standardised average word length difference is 589 in training but 34 in validation), which particularly affects the linear model.
+Table~\ref{tab:ablation} shows how much each feature group adds to each model, and how well each group does on its own for the tree and for logistic regression.
+
+\begin{table}[t]
+\centering
+\caption{Feature group ablation on the held-out partition (16 pair features, one seed). Importance is the F1 of the full model minus the F1 with the group removed: a positive value means the group helps and a negative value means that removing it raised F1. Full-model F1: tree 0.4255, logistic regression 0.4738, neural network 0.4560. The last two columns give the F1 of a model that uses only that group (not yet run for the neural network). Rows are sorted by the logistic regression importance.}
+\label{tab:ablation}
+\tablefont
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Group} & \textbf{Tree} & \textbf{Logistic} & \textbf{Neural} & \textbf{Only tree} & \textbf{Only logistic} \\
+\midrule
+Character trigram profile & -0.0040 & +0.0206 & +0.0027 & 0.277 & 0.277 \\
+Log word and character count & -0.0228 & +0.0068 & +0.0056 & 0.379 & 0.413 \\
+Gunning Fog & -0.0264 & +0.0028 & +0.0007 & 0.398 & 0.406 \\
+Flesch Reading Ease & -0.0251 & +0.0026 & +0.0044 & 0.394 & 0.410 \\
+Mean characters per word & +0.0075 & +0.0023 & +0.0046 & 0.255 & 0.258 \\
+Punctuation variety & -0.0210 & +0.0006 & +0.0006 & 0.265 & 0.264 \\
+Punctuation density & -0.0229 & +0.0004 & +0.0000 & 0.239 & 0.249 \\
+Emotion & -0.0045 & +0.0003 & +0.0003 & 0.253 & 0.254 \\
+Common-word proportion & +0.0021 & +0.0002 & +0.0000 & 0.231 & 0.247 \\
+Mean TF-IDF & -0.0054 & +0.0002 & +0.0001 & 0.301 & 0.301 \\
+Type-token ratio & +0.0020 & -0.0001 & -0.0004 & 0.245 & 0.250 \\
+Flesch-Kincaid & -0.0070 & -0.0002 & -0.0006 & 0.392 & 0.409 \\
+Digit and uppercase & -0.0066 & -0.0010 & +0.0013 & 0.231 & 0.251 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two points help in reading the table. The ``only'' columns show what a group can do alone, while the importance columns show what it adds when the other groups are present, and the two can disagree. A group that is strong alone but adds little to the full model is usually a group whose information is already held by other groups. A group that is weak alone but adds a lot, as the trigram profile does, holds information that the others lack. There were four main observations, which are as follows. (1) For logistic regression only two groups pass the 0.005 mark: the character trigram profile (importance 0.021) and the sentence length (0.007). Every other group is at or below 0.003. For the neural network only the sentence length passes the mark (0.006), with mean characters per word, Flesch Reading Ease and the trigram profile close behind (0.003 to 0.005). (2) The trigram profile is weak alone (a logistic F1 of 0.277), yet it is the most valuable addition to the others. This suggests, as exploratory evidence, that it adds to the named features and does not copy them. All of its value is found on easy pairs. Without it, the logistic F1 falls from 0.883 to 0.861 on easy pairs, and it moves from 0.066 to 0.056 on medium pairs and from 0.027 to 0.029 on hard pairs. (3) The three readability scores overlap substantially with sentence length. Each one alone reaches a logistic F1 of 0.406 to 0.410, which is about the same as the whole length group (0.413), and a tree built on any one of them scores 0.392 to 0.398 against 0.379 for length. This is expected from the formulas for a single sentence, and it explains why leaving out the length group costs only 0.007 in the full model: the readability scores still carry much of the length. (4) For the decision tree the leave-one-out numbers are not a safe guide to importance. Leaving out ten of the thirteen groups made its evaluation F1 go up, by as much as 0.026. A single tree of depth 5 changes a lot when the data change, and differences of this size could come from a different training sample. Taken together, the models agree that the signal comes mainly from how different the two sentences are in length and in character-level profile. These are the same properties that change when the topic or scene changes, which fits the strong easy result and the poor medium and hard results. The ablation does not control for topic, and it does not show that these features capture who the author is independently of the topic, so this is a reading of the results and not a proven cause.
+
+\subsection{Effect of the main settings}
+
+The settings study shows that the baseline tree depth of 5 is not the best choice (Table~\ref{tab:depth}). Validation F1 is highest at depth 8 (0.4645, with an evaluation F1 of 0.4472), which is 0.022 above depth 5 on both partitions. This depth was chosen on the model-selection partition and should be confirmed on independent data before it is treated as a real gain. The grid of depth against leaf size shows no further gain from the leaf size. Beyond depth 10 the tree overfits: at depth 20 the training F1 is 0.525 and the validation F1 only 0.403. The minimum samples to split and per leaf have no effect at depth 5, because every setting tried gave the same scores. A minimum impurity decrease of 0.01 trades recall for precision (0.522 and 0.377, F1 0.4374) and about halves the training time. A tree of depth 8 (F1 0.447) is close to the neural network (0.456) but below logistic regression (0.474). 
+
+\begin{table}[t]
+\centering
+\caption{Decision tree depth study (other settings as in the baseline). Depths 1 and 2 give the same tree. Depth 5 is the baseline used in Table~\ref{tab:overall}.}
+\label{tab:depth}
+\tablefont
+\begin{tabular}{rccc}
+\toprule
+\textbf{Maximum depth} & \textbf{Training F1} & \textbf{Validation F1} & \textbf{Evaluation F1} \\
+\midrule
+2 & 0.4280 & 0.4325 & 0.4182 \\
+3 & 0.4382 & 0.4425 & 0.4259 \\
+4 & 0.4518 & 0.4549 & 0.4390 \\
+5 & 0.4398 & 0.4423 & 0.4255 \\
+6 & 0.4464 & 0.4490 & 0.4312 \\
+8 & 0.4638 & 0.4645 & 0.4472 \\
+10 & 0.4618 & 0.4567 & 0.4408 \\
+15 & 0.4863 & 0.4375 & 0.4202 \\
+20 & 0.5247 & 0.4033 & 0.3866 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For logistic regression, learning rates from 0.05 to 0.6 give an evaluation F1 between 0.4675 and 0.4738, and a rate of 1.0 is worse (0.4613). With 5,000 iterations the F1 equals that of 10,000 (0.4738) at about half the cost, 1,000 iterations give 0.4688. Settings studies and single-group runs for the neural network are not yet available.
 
 \section{Discussion}
+\label{sec:discussion}
 
-The results give a clear answer to the guiding question of how far a fully interpretable, handcrafted stylometric system can go: on topic correlated switches it goes a long way (F1 about 0.87), and on topic controlled switches it currently does not go beyond chance. This matches the motivation behind the easy, medium, and hard design \cite{zangerle2025overview}: a system can look adequate overall while relying largely on topic. The easy result should therefore not be read as evidence of stylistic discrimination, and the overall F1 should not be quoted without the per difficulty breakdown.
+This section explains what the results mean for the main question of the paper and then lists the limits of the study.
 
-The three models being nearly tied suggests that with these features the limiting factor is information, not model class. A depth 5 tree, a linear model, and a five hidden layer network reach almost the same balanced accuracy, and extra training does not help. This is a useful negative result: it argues against spending effort on larger models before richer, style specific features are added. Whether tree ensembles would help, as the gradient boosted pipelines in the literature \cite{ochab2025styloch,zangerle2025overview} suggest, remains untested here.
+\subsection{What the results show}
 
-The reported medium and hard failure has a second cause worth stating. The nine scalars are largely surface statistics (length, letter case, punctuation rate), which vary between sentences of the same author at least as much as between authors, particularly in fiction where sentence length depends on narrative content. Function word profiles, syntactic patterns, and richer character n gram information are the features the literature reports as topic robust \cite{singh2021writing,rios2022detection}, and most of them are absent from the trained vector: the 256 trigram buckets are collapsed to one cosine, and part of speech and function word features are not implemented. The hashing design gives a way to restore this information without the vocabulary cost discussed earlier, by feeding bucket level differences, or several hashed n gram orders, to the models.
+The results answer the main question of how far a handcrafted representation that is interpretable at the level of its features can go. On switches that go together with a topic change it goes a long way, with an F1 of about 0.88. On the medium and hard subsets, which are designed to reduce topic cues, it does not yet do better than a rule that calls every boundary a switch. This matches the reason for the easy, medium and hard design \cite{zangerle2025overview}: a system can look good overall while relying mainly on topic. The overall F1 should not be quoted without the breakdown by level.
 
-Interpretability, cost, deployment, and auditability remain the reasons to pursue this approach, and the Java implementation supports them: no GPU, no external libraries, one code path from training to prediction, and readable models. But the results show that interpretability alone is not sufficient. A readable model that is at chance on hard pairs offers no defensible evidence to a forensic examiner. The value of the current system is therefore mainly as a transparent baseline that quantifies how much of the task is recoverable from cheap surface statistics.
+The three models stay close together. Balanced accuracy lies between 0.667 and 0.676, and F1 between 0.426 and 0.474 (0.447 for the best tree in the depth study). This suggests that, with these features, the limit is the information in the features and not the type of model. Richer features may therefore be a better use of effort than larger models, although this study does not show that model size can never help. The ablation points the same way: the three readability scores overlap substantially with the sentence length, and the type-token ratio and punctuation variety add less than 0.001 F1 to logistic regression. Additional features of the same kind, that is, simple counts and ratios taken from one sentence, may add little when their information overlaps with the features already used.
+
+The poor medium and hard results have a second likely cause. The named features are mostly surface statistics, such as length, capital letters and punctuation rate, and these vary within one author's writing about as much as between authors, especially in fiction where the length of a sentence depends on what is being told. Function word profiles, patterns of syntax and richer character n-gram information are common in earlier work \cite{singh2021writing,rios2022detection}, and most of them are missing from the vector used here: the 256 trigram buckets are reduced to one cosine, and part-of-speech and function word features are not built. The ablation gives a hint that this is the right direction, because the one group that is not a simple count, the trigram profile, is the most valuable group for logistic regression even in its reduced form. Document context may matter as much. The sequential model of Schmidt et al., which sees the whole document, reached macro-F1 scores of 0.828 and 0.724 on the medium and hard PAN 2025 test sets \cite{schmidt2025team}. These use another measure and other data, so they cannot be compared with ours directly.
+
+The study evaluates named, inspectable features, but the levels of explanation differ (Section~\ref{sec:system}), and it does not show that every prediction is fully explainable. Readability and ease of checking remain good reasons to follow this approach, but the results show that being easy to read is not enough. A readable model that is below a trivial baseline on hard pairs gives no defensible evidence to a forensic examiner. The main value of the present system is as a clear baseline that measures how much of the task can be recovered from cheap surface statistics.
+
+\subsection{What this means for use in practice}
+
+The results suggest a careful way to use a system of this kind. Its output is most useful where the topic changes together with the author, because that is the case where it scores well, and in that case a reader can see which named differences pushed the decision. Even there, a high F1 over many pairs does not make a single prediction reliable, and the results do not show that the system is reliable for individual cases or for forensic evidence. Where a document keeps to one topic, a flagged boundary from the present models should be seen as a weak hint and not as evidence, since on such pairs the models do not do better than a rule that flags everything. The same score means different things on an easy and on a hard document, and one threshold cannot suit switch rates as different as 30.5\%, 4.4\% and 20.9\%.
+
+\subsection{Limitations}
+
+The study has seven limits, which are as follows. (1) It uses a single split, with no confidence intervals, and the evaluation partition comes from the official validation data. The split is by document, and the same authors may appear in more than one partition. Every ablation run uses one seed, so differences below about 0.005 F1 should not be read as real, and the tree results in particular are unstable. (2) Only 16 pair features are used. (3) Settings were changed one at a time, and the final tables use the original settings, so the depth-8 tree appears only in the settings study. (4) Each boundary is classified on its own, so the context of the document is lost. (5) No comparison with transformer systems has been run on the same split. (6) Some training sentences are extreme outliers; for example the largest standardised difference in mean characters per word is 589 in training but 34 in validation. This affects the linear model in particular. We have not yet checked whether very short or malformed sentences, the syllable rule or the tokeniser cause these values, or how many pairs they affect, so the conclusion that the features themselves limit performance is not yet fully tested. (7) Leaving out one group at a time understates groups that have close substitutes, here the length and the readability scores, and removing such groups together was not tested. The ablation of the neural network is also incomplete.
 
 \section{Conclusion and Future Work}
+\label{sec:conclusion}
 
-This paper presented an interpretable Java based system for sentence level author switch detection, with nine named stylometric features, a hashed character trigram profile motivated by scalability, an eleven feature pairwise representation, and three from scratch classifiers evaluated on the PAN 2026 data. On a held out, document disjoint test split, logistic regression, a neural network, and a decision tree reached F1 of 0.456, 0.445, and 0.435. Performance is driven by the easy condition (F1 up to 0.872); on medium and hard pairs balanced accuracy is about 0.50 and F1 is below that of a trivial always switch classifier.
+This paper tested a compact, named set of stylometric features for finding author switches between sentences. The set has 14 named features, a hashed character trigram profile used through one similarity value, and an overall distance, which together give 16 pair features. On the document-disjoint evaluation partition, logistic regression, the neural network and the decision tree reached F1 scores of 0.474, 0.456 and 0.426. The scores are driven by the easy level (F1 up to 0.884), while on medium and hard pairs F1 is below that of a rule that calls every boundary a switch, with one small exception.
 
-The investigations planned next follow directly from these findings:
-\begin{itemize}
-\item \textbf{Feature ablation and importance.} Leave one feature out and single feature runs, and permutation importance, to replace the structure based reading above with measured contributions.
-\item \textbf{Restoring n gram information.} Use the full 267 column vector (256 bucket differences), several hashed n gram orders (character 2 to 5, word bigrams), and larger bucket counts, and measure both gain and cost; then benchmark feature generation time and memory against an explicit n gram vocabulary on progressively larger corpora to verify the scalability argument with measurements.
-\item \textbf{Topic robust features.} Implement part of speech tag n grams, a closed class function word list, readability measures, and vocabulary richness, which are described in the literature but absent from the trained vector.
-\item \textbf{Robustness and model tuning.} Clip or robustly scale outlier feature values (especially for logistic regression); tune and prune the tree depth beyond 5; and stabilise feature importance across repeated runs, since a single shallow tree selects only a few features.
-\item \textbf{Difficulty aware decisions.} Per difficulty thresholds, or a difficulty estimator, since one threshold cannot suit switch rates of 30.5\%, 4.4\%, and 20.9\%.
-\item \textbf{Stronger models and evaluation.} Random forest (already implemented) and gradient boosted trees; repeated splits or document grouped cross validation with confidence intervals; and the official test data when available.
-\item \textbf{Estimating the number of authors.} Detected switches divide a document into segments, and the number of segments is an upper bound on the number of authors. How tight that bound is depends on the accuracy of the switch detector, since missed switches undercount segments and false switches inflate them. To estimate the number of authors, clustering algorithms such as k-means, hierarchical clustering, and Gaussian mixtures will be trained on the stylometric vectors of the segments, with the number of clusters limited to the number of segments and chosen by an internal criterion such as the silhouette score. This is only meaningful once the detector is better than chance on medium and hard pairs.
-\item \textbf{Context.} A sliding window over several sentences, and a comparison with the transformer based systems surveyed in Section~3 on the same split, to quantify the interpretability and accuracy trade off rather than assert it.
-\end{itemize}
+The next steps fall into three groups. The 272-column vector was not evaluated in any reported experiment, so these results cannot show whether it would improve performance. The first is to investigate the extreme feature values and then improve the features, by restoring the 272-column vector (14 differences, the cosine, the overall distance and 256 bucket differences), trying several hashed n-gram orders, and adding part-of-speech n-grams and a closed list of function words. Feature building time and memory should also be compared with an explicit n-gram list. The second is a stronger evaluation: repeated runs over document-grouped splits with confidence intervals, a completed neural network ablation, grouped ablations of length and readability, a pair-distance threshold baseline, a tree with a tuned threshold evaluated under the same protocol as the other models, and confirmation on the official test data when it is released. The third is stronger models and context, such as tree ensembles, thresholds for each difficulty level, a window over several sentences, and a comparison with transformer-based systems on the same split.
 
-Rather than replacing transformer based methods, this work asks whether interpretable stylometric models can become competitive enough for high stakes applications where explanation is required. The present evidence says that, with surface features alone, they cannot yet do so on topic controlled data, and it identifies where to look next.
+The results support the use of the system as an interpretable experimental baseline, and not as a reliable author-switch detector for practical or forensic decisions.
 
-%
-% ---- Bibliography ----
-%
 \bibliographystyle{splncs04}
 \bibliography{references}
 

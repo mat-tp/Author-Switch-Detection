@@ -10,11 +10,19 @@
             <em>same author</em> or <em>author switch</em>.</p>
     </div>
 
-    <div class="random-banner" th:unless="${trained}">
-        <div>
-            <strong>No trained model found — predictions are running in random mode.</strong>
-            <span><a th:href="@{/train}">Train a model →</a> for real predictions.</span>
-        </div>
+    <div class="model-banner" th:unless="${anyReady}">
+        <strong>No trained model can be used yet.</strong>
+        There are no stand-in predictions: a model has to be trained first
+        (<a th:href="@{/train}">Train page</a>, or <code>Main</code> / <code>RetrievalMain</code> on the command line).
+        <ul th:if="${!problems.isEmpty()}">
+            <li th:each="o : ${problems}"><strong th:text="${o.label}"></strong>: <span th:text="${o.problem}"></span></li>
+        </ul>
+    </div>
+    <div class="model-banner" th:if="${anyReady and !problems.isEmpty()}">
+        <strong>Some models are out of date and are not offered below:</strong>
+        <ul>
+            <li th:each="o : ${problems}"><strong th:text="${o.label}"></strong>: <span th:text="${o.problem}"></span></li>
+        </ul>
     </div>
 
     <div class="alert alert-warning" th:if="${error}" th:text="${error}"></div>
@@ -23,11 +31,12 @@
         <div class="card">
             <div class="card-label">Input</div>
             <form method="post" th:action="@{/predict}" enctype="multipart/form-data">
-                <div class="form-group" th:if="${!availableModels.isEmpty()}">
+                <div class="form-group">
                     <label for="model_name">Model</label>
                     <select id="model_name" name="modelName">
-                        <option th:each="m : ${availableModels}" th:value="${m}" th:text="${m}"
-                                th:selected="${m == selectedModel}"></option>
+                        <option th:each="o : ${modelOptions}" th:value="${o.name}"
+                                th:text="${o.label} + (${o.ready} ? '' : ' (not available)')"
+                                th:disabled="${!o.ready}" th:selected="${o.name == selectedModel}"></option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -64,9 +73,10 @@
             <div th:if="${result}">
                 <div class="summary-row">
                     <span class="muted" th:text="${result.nSentences} + ' sentences · ' + ${result.nPairs} + ' pairs'"></span>
-                    <span class="mode-tag" th:classappend="${result.mode == 'random'} ? 'mode-random' : 'mode-model'"
-                          th:text="${result.mode == 'random'} ? 'Random' : 'Model'"></span>
+                    <span class="mode-tag mode-model" th:text="${result.modelName}"></span>
                 </div>
+                <p class="muted small" th:if="${result.modelDescription != null and !result.modelDescription.isEmpty()}"
+                   th:text="'Trained with: ' + ${result.modelDescription}"></p>
 
                 <div class="task-summary">
                     <div class="task-card">
@@ -78,15 +88,17 @@
                         <div class="task-card-label">Segments (switches + 1)</div>
                         <span class="badge badge-info" th:text="${result.nSegments}"></span>
                     </div>
-                    <div class="task-card" th:if="${result.hasThreshold}">
+                    <div class="task-card" title="Chosen on the validation data when the model was trained; a pair is a switch when its probability is above it.">
                         <div class="task-card-label">Threshold</div>
-                        <span class="badge badge-info" th:text="${result.threshold}"></span>
+                        <span class="badge badge-info" th:text="${#numbers.formatDecimal(result.threshold, 1, 3)}"></span>
                     </div>
-                    <div class="task-card" th:unless="${result.hasThreshold}">
-                        <div class="task-card-label">Threshold</div>
-                        <span class="muted small">none: the tree outputs a class, not a probability</span>
+                    <div class="task-card" th:if="${result.detectedLevel}" th:title="${result.levelProbabilities}">
+                        <div class="task-card-label">Detected difficulty</div>
+                        <span class="badge badge-info" th:text="${result.detectedLevel}"></span>
                     </div>
                 </div>
+                <p class="muted small" th:if="${result.thresholdNote}" th:text="${result.thresholdNote}"></p>
+                <p class="muted small" th:if="${result.levelProbabilities}" th:text="'Difficulty detected from the text: ' + ${result.levelProbabilities}"></p>
 
                 <div class="alert alert-warning" th:if="${result.truthError}" th:text="${result.truthError}"></div>
 
@@ -96,7 +108,8 @@
                         <div class="task-card"><div class="task-card-label">Accuracy</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.accuracy, 1, 4)}"></span></div>
                         <div class="task-card"><div class="task-card-label">Precision</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.precision, 1, 4)}"></span></div>
                         <div class="task-card"><div class="task-card-label">Recall</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.recall, 1, 4)}"></span></div>
-                        <div class="task-card"><div class="task-card-label">F1</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.f1, 1, 4)}"></span></div>
+                        <div class="task-card" title="The mean of the F1 of both classes: the measure PAN 2026 ranks by."><div class="task-card-label">Macro-F1</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.macroF1, 1, 4)}"></span></div>
+                        <div class="task-card" title="F1 of the switch class alone."><div class="task-card-label">F1 (switch)</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.f1, 1, 4)}"></span></div>
                         <div class="task-card"><div class="task-card-label">Balanced accuracy</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.balancedAccuracy, 1, 4)}"></span></div>
                         <div class="task-card"><div class="task-card-label">Specificity</div><span class="badge badge-info" th:text="${#numbers.formatDecimal(result.metrics.specificity, 1, 4)}"></span></div>
                     </div>
@@ -112,7 +125,7 @@
                         the model predicted <span th:text="${result.metrics.predictedSwitches}"></span>.
                         Always predicting "same author" would score
                         <span th:text="${#numbers.formatDecimal(result.metrics.majorityBaseline, 1, 4)}"></span> accuracy
-                        (the majority baseline): the switch class is the minority, so compare F1 and balanced accuracy, not accuracy alone.
+                        (the majority baseline): the switch class is the minority, so compare macro-F1 and balanced accuracy, not accuracy alone.
                     </p>
                 </div>
 
@@ -120,7 +133,7 @@
                     <summary>The model as rules (how every decision below is made)</summary>
                     <div class="dropdown-body">
                         <div class="rules" th:text="${#strings.listJoin(result.modelRules, '&#10;')}"></div>
-                        <p class="muted small">Features are the pair features: <code>diff_*</code> is an absolute z-score
+                        <p class="muted small">Features are the pair features: <code>abs_*</code> columns are an absolute z-score
                             difference, so higher means the two sentences differ more on that feature.</p>
                     </div>
                 </details>

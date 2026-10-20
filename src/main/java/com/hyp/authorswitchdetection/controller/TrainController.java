@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-/** This is limited to Admin-only: kick off a (currently simulated) training run and poll its progress. */
+/** This is limited to Admin-only: start a real training run and poll its progress. */
 @Controller
 @RequestMapping("/train")
 public class TrainController {
@@ -32,7 +32,7 @@ public class TrainController {
         String guard = requireAdmin(model, session);
         if (guard != null) return guard;
 
-        model.addAttribute("models", classifierRegistry.allNames());
+        model.addAttribute("modelOptions", classifierRegistry.options());
         return "train";
     }
 
@@ -42,7 +42,7 @@ public class TrainController {
         if (guard != null) return guard;
 
         trainingService.startTraining(modelName);
-        model.addAttribute("models", classifierRegistry.allNames());
+        model.addAttribute("modelOptions", classifierRegistry.options());
         model.addAttribute("started", true);
         return "train";
     }
