@@ -3,26 +3,25 @@ package com.hyp.authorswitchdetection.service.classifier;
 import com.hyp.authorswitchdetection.ml.MlModelLoader;
 import com.hyp.authorswitchdetection.ml.PairFeatureUtil;
 import models.DecisionTree;
+import models.ModelStore;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/*
-    Was a stub ("replace this with your real decision tree model"), now backed
-    by the actual decision tree trained by RealTrainer (or, before anything has
-    been trained from the UI, the bundled baseline) — see MlModelLoader.
-*/
+/**
+ * The decision tree trained by Main / RealTrainer, see MlModelLoader.
+ *
+ * The tree has leaf probabilities (the share of change pairs that reached the leaf in training), so it
+ * gives a probability and a threshold like the other models. The reasons shown with a prediction are
+ * the questions the tree asked.
+ */
 @Component
-public class DecisionTreeClassifier implements AuthorSwitchClassifier {
-
-    // holding the loader, not a snapshot of its model — reload() after a fresh
-    // training run should be picked up on the very next prediction
-    private final MlModelLoader modelLoader;
+public class DecisionTreeClassifier extends PairModelClassifier {
 
     public DecisionTreeClassifier(MlModelLoader modelLoader) {
-        this.modelLoader = modelLoader;
+        super(modelLoader, MlModelLoader.TREE);
     }
 
     @Override
@@ -31,27 +30,6 @@ public class DecisionTreeClassifier implements AuthorSwitchClassifier {
     @Override
     public String getDisplayName() { return "Decision Tree"; }
 
-    @Override
-    public boolean isImplemented() { return modelLoader.decisionTree() != null; }
-
-    @Override
-    public double predictSwitchProbability(String a, String b) {
-
-        MlModelLoader.DecisionTreeModel model = modelLoader.decisionTree();
-        if (model == null) {
-            throw new UnsupportedOperationException("Decision Tree model is not available.");
-        }
-
-        double[] pairFeatures = PairFeatureUtil.pairFeatures(model.extractor(), a, b, model.fullFeatures());
-
-        // a decision tree gives a hard 0/1 label, not a probability (see hasProbability)
-        return model.tree().predict(pairFeatures) == 1 ? 1.0 : 0.0;
-    }
-
-    /** A tree ends in a class label, so there is no probability to compare against a threshold. */
-    @Override
-    public boolean hasProbability() { return false; }
-
     /**
      * The questions the tree asked for this pair, e.g.
      * "diff_avg_word_length = 0.412 > 0.318", ending with the label reached.
@@ -59,21 +37,21 @@ public class DecisionTreeClassifier implements AuthorSwitchClassifier {
     @Override
     public List<String> explain(String a, String b) {
 
-        MlModelLoader.DecisionTreeModel model = modelLoader.decisionTree();
+        ModelStore.Loaded model = model();
         if (model == null) {
             return List.of();
         }
 
-        double[] pairFeatures = PairFeatureUtil.pairFeatures(model.extractor(), a, b, model.fullFeatures());
-        DecisionTree.Explanation explanation = model.tree().explain(pairFeatures);
+        double[] pairFeatures = PairFeatureUtil.pairFeatures(model.extractor, a, b);
+        String[] names = model.extractor.pairFeatureNames();
+        DecisionTree.Explanation explanation = ((DecisionTree) model.model).explain(pairFeatures);
 
         List<String> lines = new ArrayList<>();
         for (DecisionTree.DecisionStep step : explanation.steps) {
-            lines.add(String.format(Locale.ROOT, "%s = %.3f %s %.3f",
-                    PairFeatureUtil.pairFeatureName(step.featureIndex), step.value,
+            lines.add(String.format(Locale.ROOT, "%s = %.3f %s %.3f", names[step.featureIndex], step.value,
                     step.wentLeft ? "<=" : ">", step.threshold));
         }
-        lines.add(explanation.label == 1 ? "\u2192 author switch" : "\u2192 same author");
+        lines.add(explanation.label == 1 ? "→ author switch" : "→ same author");
         return lines;
     }
 
@@ -81,15 +59,10 @@ public class DecisionTreeClassifier implements AuthorSwitchClassifier {
     @Override
     public List<String> describeModel() {
 
-        MlModelLoader.DecisionTreeModel model = modelLoader.decisionTree();
+        ModelStore.Loaded model = model();
         if (model == null) {
             return List.of();
         }
-
-        String[] names = new String[model.fullFeatures() ? PairFeatureUtil.PAIR_FEATURE_NAMES.length + 256 : PairFeatureUtil.PAIR_FEATURE_NAMES.length];
-        for (int i = 0; i < names.length; i++) {
-            names[i] = PairFeatureUtil.pairFeatureName(i);
-        }
-        return model.tree().toRules(names);
+        return ((DecisionTree) model.model).toRules(model.extractor.pairFeatureNames());
     }
 }

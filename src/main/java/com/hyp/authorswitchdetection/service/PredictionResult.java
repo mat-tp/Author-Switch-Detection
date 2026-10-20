@@ -22,9 +22,14 @@ public class PredictionResult {
 
     public int nSentences;
     public int nPairs;
-    public String mode;              // "random" or "model"
+    public String modelName;
+    public String modelDescription;  // the settings the model was trained with
+    public String error;             // why no prediction was made (no model, model out of date, ...)
     public boolean hasThreshold;     // false for a decision tree: it outputs a class label, not a probability
     public double threshold;
+    public String detectedLevel;          // easy / medium / hard as detected from the text, null = not detected
+    public String levelProbabilities;     // "easy 0.12 | medium 0.30 | hard 0.58"
+    public String thresholdNote;          // where the threshold comes from, or why the level could not be detected
     public List<Pair> pairs = new ArrayList<>();
     public int nSwitches;
     public int nSegments;            // nSwitches + 1: the text cut at every predicted switch

@@ -5,6 +5,7 @@ import com.hyp.authorswitchdetection.service.CurrentUserService;
 import com.hyp.authorswitchdetection.service.InspectResult;
 import com.hyp.authorswitchdetection.service.InspectService;
 import com.hyp.authorswitchdetection.service.TextAnalysisService;
+import com.hyp.authorswitchdetection.service.classifier.ClassifierRegistry;
 import features.FeatureExtractor;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.stereotype.Controller;
@@ -22,14 +23,15 @@ import java.util.Optional;
 public class InspectController {
 
     // the features are defined by the fitted extractor that was saved with a model
-    private static final String[] MODELS = { "decision_tree", "logistic_regression", "neural_network" };
-
+    
     private final TextAnalysisService textAnalysisService;
     private final InspectService inspectService;
     private final CurrentUserService currentUserService;
+    private final ClassifierRegistry classifierRegistry;
 
     public InspectController(TextAnalysisService textAnalysisService, InspectService inspectService,
-            CurrentUserService currentUserService) {
+            CurrentUserService currentUserService, ClassifierRegistry classifierRegistry) {
+        this.classifierRegistry = classifierRegistry;
         this.textAnalysisService = textAnalysisService;
         this.inspectService = inspectService;
         this.currentUserService = currentUserService;
@@ -58,14 +60,21 @@ public class InspectController {
         }
 
         Optional<FeatureExtractor> extractor = inspectService.extractorFor(modelName);
-        if (extractor.isEmpty()) {
-            model.addAttribute("error", "The model '" + modelName + "' is not available, so its features "
-                    + "can't be computed. Train it first, or pick another model.");
-            return "inspect";
-        }
 
         // every sentence is shown, no limit
-        InspectResult result = inspectService.inspect(sentences, modelName, extractor.get());
+        InspectResult result;
+        if (extractor.isPresent()) {
+            result = inspectService.inspect(sentences, modelName, extractor.get());
+        } else {
+            // no trained model: the features can still be shown, relative to this text only
+            String problem = inspectService.problemWith(modelName);
+            result = inspectService.inspect(sentences, modelName, inspectService.extractorFromText(sentences));
+            result.note = (problem != null
+                    ? "The model '" + modelName + "' can not be used (" + problem + ")."
+                    : "The model '" + modelName + "' has not been trained yet.")
+                    + " The features below are computed with the default settings and an extractor fitted on this text "
+                    + "only, so the z-scores say how a sentence differs from the rest of THIS text, not from the training data.";
+        }
         model.addAttribute("result", result);
         return "inspect";
     }
@@ -85,7 +94,7 @@ public class InspectController {
     private void addCommon(Model model, HttpSession session, String selectedModel) {
         User user = currentUserService.getCurrentUser(session).orElse(null);
         model.addAttribute("currentUser", user);
-        model.addAttribute("inspectModels", MODELS);
+        model.addAttribute("modelOptions", classifierRegistry.options());
         model.addAttribute("selectedModel", selectedModel);
     }
 }

@@ -23,7 +23,8 @@
         <p class="muted small">Where a fresh training run from the Train page is saved
             (<code>app.trained-models.dir</code>):</p>
         <p><code th:text="${trainedModelsDir}"></code></p>
-        <span class="hint">Checked first on every prediction, before falling back to the bundled baseline model.</span>
+        <span class="hint">Every prediction reads the models from here. There is no bundled model and no stand-in
+            prediction: until a model is trained here (or copied here from a command line run), the Predict page says so.</span>
     </div>
 </main>
 <div th:replace="~{fragments :: footer}"></div>

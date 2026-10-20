@@ -30,6 +30,9 @@ REM
 REM   set JAVA_OPTS=-Dquick=true -Dsubset=50000
 REM   scripts\ablation.bat
 REM
+REM Modes: all | features | params | pipeline (n-gram order 1..5, buckets, casing, pair representation)
+REM        | retrieval (the retrieval model, writes retrieval_ablation.csv)
+REM
 REM Results:
 REM   data\ablation\ablation_results.csv
 REM   data\ablation\ablation_report.md
@@ -70,6 +73,8 @@ if not defined MODE set "MODE=all"
 if /I "%MODE%"=="all" goto MODE_VALID
 if /I "%MODE%"=="features" goto MODE_VALID
 if /I "%MODE%"=="params" goto MODE_VALID
+if /I "%MODE%"=="pipeline" goto MODE_VALID
+if /I "%MODE%"=="retrieval" goto MODE_VALID
 
 echo ERROR: Unknown mode "%MODE%"
 echo Use: all ^| features ^| params
@@ -157,7 +162,7 @@ REM ============================================================
 echo          ^> Compiling Ablation.java
 echo.
 
-javac -sourcepath "%SRC%" -d "%OUT%" "%SRC%\Ablation.java"
+javac -encoding UTF-8 -sourcepath "%SRC%" -d "%OUT%" "%SRC%\Ablation.java" "%SRC%\RetrievalMain.java"
 
 if errorlevel 1 (
     echo ERROR: Compilation failed.
@@ -175,7 +180,12 @@ REM ============================================================
 echo          ^> Running the ablation study: %MODE%
 echo.
 
-java %JAVA_OPTS% -cp "%OUT%" Ablation "%MODE%"
+if /I "%MODE%"=="retrieval" (
+    if not exist "data\ablation" mkdir "data\ablation"
+    java %JAVA_OPTS% -Dret.csv=data/ablation/retrieval_ablation.csv -cp "%OUT%" RetrievalMain ablate
+) else (
+    java %JAVA_OPTS% -cp "%OUT%" Ablation "%MODE%"
+)
 
 if errorlevel 1 (
     echo ERROR: Ablation study failed.

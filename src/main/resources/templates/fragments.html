@@ -6,8 +6,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${title} + ' · Author Switch Detector'">Author Switch Detector</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" th:href="@{/style.css}">
 </div>
 
@@ -23,7 +21,9 @@
                 <a th:href="@{/explore}">Explore</a>
                 <a th:if="${currentUser.admin}" th:href="@{/train}">Train</a>
                 <a th:href="@{/predict}">Predict</a>
+                <a th:href="@{/retrieve}">Retrieve</a>
                 <a th:href="@{/results}">Results</a>
+                <a th:href="@{/ablation}">Ablation</a>
                 <a th:if="${currentUser.admin}" th:href="@{/settings}">Settings</a>
                 <a th:if="${currentUser.admin}" th:href="@{/admin/users}">Admin</a>
                 <span class="nav-divider"></span>

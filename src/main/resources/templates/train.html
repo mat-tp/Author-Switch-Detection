@@ -6,9 +6,9 @@
 <main>
     <div class="page-header">
         <h1>Train Model</h1>
-        <p class="subtitle">Pick a classifier and click Train — it always fits on the full dataset (all
-            difficulty levels combined), searching a small grid of feature sets and hyperparameters and
-            keeping whichever combination scores best on the validation split.</p>
+        <p class="subtitle">Pick a model and click Train — it fits on all difficulty levels combined,
+            searches a small grid of feature sets and hyperparameters, and keeps whichever combination scores best
+            (macro-F1) on the validation split. The numbers on the Results page come from a held-out test half.</p>
     </div>
 
     <div class="two-col">
@@ -18,7 +18,8 @@
                 <div class="form-group">
                     <label for="model_name">Classifier</label>
                     <select id="model_name" name="modelName">
-                        <option th:each="m : ${models}" th:value="${m}" th:text="${m}"></option>
+                        <option th:each="o : ${modelOptions}" th:value="${o.name}"
+                                th:text="${o.label} + (${o.ready} ? ' (trained)' : '')"></option>
                     </select>
                 </div>
                 <button type="submit" class="btn btn-primary" id="train-submit-btn">Train Model</button>

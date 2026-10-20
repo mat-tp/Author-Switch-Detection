@@ -1,6 +1,5 @@
 package com.hyp.authorswitchdetection.service;
 
-import com.hyp.authorswitchdetection.model.ModelMetrics;
 import com.hyp.authorswitchdetection.service.classifier.AuthorSwitchClassifier;
 import com.hyp.authorswitchdetection.service.classifier.ClassifierRegistry;
 import org.springframework.stereotype.Service;
@@ -8,24 +7,21 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Random;
-
-/*
-    TODO: (1) Random Forest still falls back to the random baseline below,
-    since hyProjectTP never actually trained one.
-*/
 
 /**
  * Drives the Prediction page.
+ *
+ * A prediction is made by a trained model or not at all: when the model was not trained yet, or was saved by
+ * an older version of the code, the result says so (PredictionResult.error). There is no stand-in
+ * that makes up numbers, because a page that shows random "predictions" next to the name of a model
+ * can be mistaken for a result.
  */
 @Service
 public class PredictionService {
 
-    private final TrainingService trainingService;
     private final ClassifierRegistry classifierRegistry;
 
-    public PredictionService(TrainingService trainingService, ClassifierRegistry classifierRegistry) {
-        this.trainingService = trainingService;
+    public PredictionService(ClassifierRegistry classifierRegistry) {
         this.classifierRegistry = classifierRegistry;
     }
 
@@ -39,20 +35,29 @@ public class PredictionService {
         PredictionResult result = new PredictionResult();
         result.nSentences = sentences.size();
         result.nPairs = Math.max(0, sentences.size() - 1);
+        result.modelName = modelName;
 
-        Optional<AuthorSwitchClassifier> classifier = modelName == null
-                ? Optional.empty()
-                : classifierRegistry.get(modelName).filter(AuthorSwitchClassifier::isImplemented);
+        Optional<AuthorSwitchClassifier> found = modelName == null ? Optional.empty()
+                : classifierRegistry.get(modelName);
 
-        result.mode = classifier.isPresent() ? "model" : "random";
+        if (found.isEmpty()) {
+            result.error = "Choose a model first.";
+            return result;
+        }
 
-        // only models with a probability have a threshold (tuned on validation).
-        // A decision tree outputs a class label, so there is nothing to tune.
-        boolean withProbability = classifier.map(AuthorSwitchClassifier::hasProbability).orElse(true);
-        result.hasThreshold = withProbability;
+        AuthorSwitchClassifier classifier = found.get();
 
-        ModelMetrics trained = modelName == null ? null : trainingService.latestFor(modelName);
-        result.threshold = (withProbability && trained != null) ? trained.getDecisionThreshold() : 0.5;
+        if (!classifier.isImplemented()) {
+            String reason = classifier.unavailableReason();
+            result.error = classifier.getDisplayName() + " can not be used: "
+                    + (reason != null ? reason : "it has not been trained yet. Train it on the Train page "
+                            + "(or with Main / RetrievalMain), then come back.");
+            return result;
+        }
+
+        result.hasThreshold = classifier.hasProbability();
+        result.threshold = classifier.threshold();
+        result.modelDescription = classifier.describeTraining();
 
         // the truth has to line up with the pairs, otherwise metrics would be wrong
         if (truth != null) {
@@ -72,9 +77,25 @@ public class PredictionService {
             }
         }
 
-        result.modelRules = classifier.map(AuthorSwitchClassifier::describeModel).orElse(List.of());
+        result.modelRules = classifier.describeModel();
 
-        Random rnd = new Random();
+        // the difficulty level is not asked for: it is detected from the text and the threshold of that level is used
+        if (result.hasThreshold) {
+            models.LevelRouter.Decision decision = classifier.decideThreshold(sentences);
+            if (decision != null && decision.level != null) {
+                result.threshold = decision.threshold;
+                result.detectedLevel = decision.level;
+                result.levelProbabilities = String.format(java.util.Locale.ROOT, "easy %.2f | medium %.2f | hard %.2f",
+                        decision.probabilities[0], decision.probabilities[1], decision.probabilities[2]);
+                result.thresholdNote = decision.source;
+            } else {
+                String problem = classifier.levelRouterProblem();
+                result.thresholdNote = problem.isEmpty() ? "" : "single threshold of the model; difficulty not detected: " + problem;
+            }
+        }
+
+        double[] probabilities = classifier.switchProbabilities(sentences);
+
         int[] predicted = new int[result.nPairs];
         List<Integer> segmentStartIdx = new ArrayList<>();
         segmentStartIdx.add(0);
@@ -86,20 +107,10 @@ public class PredictionService {
             pair.sentenceA = sentences.get(i);
             pair.sentenceB = sentences.get(i + 1);
 
-            if (classifier.isPresent()) {
-
-                double p = classifier.get().predictSwitchProbability(pair.sentenceA, pair.sentenceB);
-                pair.isSwitch = p >= result.threshold;
-                pair.probability = withProbability ? Math.round(p * 1000.0) / 1000.0 : null;
-                pair.reasons = classifier.get().explain(pair.sentenceA, pair.sentenceB);
-
-            } else {
-
-                // stand-by random predictions when nothing is trained
-                double p = Math.max(0.0, Math.min(1.0, rnd.nextGaussian() * 0.2 + 0.3));
-                pair.isSwitch = p >= result.threshold;
-                pair.probability = Math.round(p * 1000.0) / 1000.0;
-            }
+            // '>' like the command line: models.LogisticRegression.predict
+            pair.isSwitch = probabilities[i] > result.threshold;
+            pair.probability = Math.round(probabilities[i] * 1000.0) / 1000.0;
+            pair.reasons = classifier.explain(pair.sentenceA, pair.sentenceB);
 
             predicted[i] = pair.isSwitch ? 1 : 0;
 

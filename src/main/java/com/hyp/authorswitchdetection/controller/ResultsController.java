@@ -30,8 +30,8 @@ public class ResultsController {
         User user = currentUserService.getCurrentUser(session).orElse(null);
         model.addAttribute("currentUser", user);
 
-        model.addAttribute("availableModels", classifierRegistry.allNames());
-        model.addAttribute("allMetrics", trainingService.allMetricsByF1Desc());
+        model.addAttribute("modelOptions", classifierRegistry.options());
+        model.addAttribute("allMetrics", trainingService.latestRuns());
 
         String selected = modelName;
         if (selected == null && !classifierRegistry.allNames().isEmpty()) {
@@ -41,6 +41,7 @@ public class ResultsController {
 
         ModelMetrics metrics = selected == null ? null : trainingService.latestFor(selected);
         model.addAttribute("metrics", metrics);
+        model.addAttribute("history", selected == null ? java.util.List.of() : trainingService.history(selected));
         return "results";
     }
 }

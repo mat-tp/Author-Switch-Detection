@@ -21,7 +21,8 @@ public class EvaluationMetrics {
     public double precision;
     public double recall;         // sensitivity
     public double specificity;
-    public double f1;
+    public double f1;             // F1 of the change class
+    public double macroF1;        // mean of the F1 of both classes: the measure PAN 2026 ranks by
     public double balancedAccuracy;
     public double majorityBaseline; // accuracy of always predicting the bigger class
 
@@ -46,6 +47,7 @@ public class EvaluationMetrics {
         m.specificity = ratio(m.trueNegatives, actualSame);
         m.f1 = (m.precision + m.recall) == 0.0 ? 0.0 : 2.0 * m.precision * m.recall / (m.precision + m.recall);
         m.balancedAccuracy = (m.recall + m.specificity) / 2.0;
+        m.macroF1 = Metrics.calcMacroF1(predictions, truth);
         m.majorityBaseline = ratio(Math.max(m.actualSwitches, actualSame), m.total);
 
         return m;

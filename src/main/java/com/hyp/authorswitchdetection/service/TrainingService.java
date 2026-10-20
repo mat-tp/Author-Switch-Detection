@@ -36,6 +36,38 @@ public class TrainingService {
         return metricsStore.findAllByOrderByF1Desc();
     }
 
+    /**
+     * One row per model and source (web / command line): the latest run, best macro-F1 first. Every older run
+     * stays in the file (see history), it is only not shown twice in the comparison.
+     */
+    public List<ModelMetrics> latestRuns() {
+
+        java.util.Map<String, ModelMetrics> latest = new java.util.LinkedHashMap<>();
+        for (ModelMetrics m : metricsStore.findAllByOrderByF1Desc()) {
+            String key = m.getModelName() + "|" + m.getTrainedBy();
+            ModelMetrics current = latest.get(key);
+            if (current == null || m.getTrainedAt().isAfter(current.getTrainedAt())) {
+                latest.put(key, m);
+            }
+        }
+        List<ModelMetrics> rows = new java.util.ArrayList<>(latest.values());
+        rows.sort(java.util.Comparator.comparingDouble(ModelMetrics::getMacroF1).reversed());
+        return rows;
+    }
+
+    /** All the runs of one model, newest first. */
+    public List<ModelMetrics> history(String modelName) {
+
+        List<ModelMetrics> rows = new java.util.ArrayList<>();
+        for (ModelMetrics m : metricsStore.findAllByOrderByF1Desc()) {
+            if (m.getModelName().equals(modelName)) {
+                rows.add(m);
+            }
+        }
+        rows.sort(java.util.Comparator.comparing(ModelMetrics::getTrainedAt).reversed());
+        return rows;
+    }
+
     public ModelMetrics latestFor(String modelName) {
         return metricsStore.findFirstByModelNameOrderByTrainedAtDesc(modelName).orElse(null);
     }
@@ -61,9 +93,10 @@ public class TrainingService {
                 outcome = realTrainer.trainLogisticRegression(status);
             } else if (modelName.equals("neural_network")) {
                 outcome = realTrainer.trainNeuralNetwork(status);
+            } else if (modelName.equals("retrieval_embedding")) {
+                outcome = realTrainer.trainRetrieval(status);
             } else {
-                throw new IllegalArgumentException(modelName + " has no training routine yet (Random Forest was "
-                        + "never implemented in hyProjectTP either)");
+                throw new IllegalArgumentException(modelName + " has no training routine");
             }
 
             metricsStore.save(toModelMetrics(modelName, outcome));
@@ -78,7 +111,7 @@ public class TrainingService {
             status.done = true;
 
         } catch (Exception e) {
-            status.error = e.getMessage();
+            status.error = e.getMessage() != null ? e.getMessage() : e.toString();
         } finally {
             status.running = false;
         }
@@ -91,6 +124,8 @@ public class TrainingService {
         m.setVersionName(modelName);
         m.setFull(true); // always the full dataset now, see class comment above
         m.setF1(outcome.f1);
+        m.setMacroF1(outcome.macroF1);
+        m.setFeatureConfig(outcome.featureConfig);
         m.setPrecision(outcome.precision);
         m.setRecall(outcome.recall);
         m.setBalancedAccuracy(outcome.balancedAccuracy);

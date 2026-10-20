@@ -10,7 +10,7 @@
     --ok: #16a34a;
     --warn: #b45309;
     --danger: #dc2626;
-    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -41,7 +41,7 @@ h1 { font-size: 1.8em; margin: 0 0 6px; }
 h2 { font-size: 1.3em; }
 h3 { font-size: 1.05em; }
 .subtitle { color: var(--muted); max-width: 640px; }
-code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 0.9em; }
+code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 0.9em; }
 
 .muted { color: var(--muted); }
 .small { font-size: 0.85em; }
@@ -155,7 +155,7 @@ textarea { resize: vertical; }
 .progress-bar-track { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin-top: 8px; }
 #progress-bar-fill { background: var(--accent); height: 100%; width: 0%; transition: width .3s ease; }
 .progress-labels { display: flex; justify-content: space-between; font-size: 0.85em; color: var(--muted); margin-top: 4px; }
-.log { background: var(--surface-2); border-radius: 8px; padding: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 0.8em; white-space: pre-wrap; max-height: 260px; overflow-y: auto; margin-top: 12px; }
+.log { background: var(--surface-2); border-radius: 8px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 0.8em; white-space: pre-wrap; max-height: 260px; overflow-y: auto; margin-top: 12px; }
 
 .info-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 .info-table th, .info-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 0.9em; }
@@ -178,15 +178,51 @@ textarea { resize: vertical; }
 }
 
 /* --- Inspect: per-sentence feature tables and pair vectors, Predict: metrics / rules --- */
-.feat-table { width: 100%; border-collapse: collapse; font-size: 0.8em; margin-top: 8px; font-family: 'IBM Plex Mono', monospace; }
+.feat-table { width: 100%; border-collapse: collapse; font-size: 0.8em; margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
 .feat-table th { text-align: left; color: var(--muted); font-weight: 400; padding: 2px 8px; border-bottom: 1px solid var(--border); }
 .feat-table td { padding: 2px 8px; }
 .feat-table td:not(:first-child), .feat-table th:not(:first-child) { text-align: right; }
 .pair-card { background: var(--surface-2); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 14px; margin: -2px 0 10px 24px; }
 .pair-title { font-size: 0.82em; color: var(--accent); }
-.rules { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 0.8em; white-space: pre; overflow-x: auto; }
-.reasons { font-family: 'IBM Plex Mono', monospace; font-size: 0.78em; color: var(--muted); margin: 6px 0 0 0; padding-left: 16px; }
+.rules { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 0.8em; white-space: pre; overflow-x: auto; }
+.reasons { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 0.78em; color: var(--muted); margin: 6px 0 0 0; padding-left: 16px; }
 .confusion { border-collapse: collapse; margin: 8px 0; font-size: 0.85em; }
 .confusion th, .confusion td { border: 1px solid var(--border); padding: 6px 12px; text-align: center; }
-.badge-outcome { font-family: 'IBM Plex Mono', monospace; }
+.badge-outcome { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
 .pred-item-wrong { border-left-color: var(--warn) !important; }
+
+
+/* ---- banners for models that are missing or out of date ---- */
+.model-banner { background: rgba(220, 38, 38, 0.07); border: 1px solid rgba(220, 38, 38, 0.3); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 0.92em; }
+.model-banner strong { color: var(--danger); }
+.model-banner.info { background: rgba(59, 111, 224, 0.07); border-color: rgba(59, 111, 224, 0.3); }
+.model-banner.info strong { color: var(--accent); }
+.model-banner ul { margin: 6px 0 0 18px; padding: 0; }
+
+/* ---- tables that can be wide (results, ablation) ---- */
+.table-scroll { overflow-x: auto; }
+.data-table { border-collapse: collapse; width: 100%; font-size: 0.86em; }
+.data-table th, .data-table td { border-bottom: 1px solid var(--border); padding: 6px 10px; text-align: right; white-space: nowrap; }
+.data-table th:first-child, .data-table td:first-child, .data-table th.left, .data-table td.left { text-align: left; }
+.data-table thead th { background: var(--surface-2); position: sticky; top: 0; }
+.data-table td.best { font-weight: 600; color: var(--ok); }
+.data-table tr.family-start td { border-top: 2px solid var(--border); }
+.muted-row td { color: var(--muted); }
+
+/* ---- retrieval heatmap ---- */
+.heatmap { border-collapse: collapse; font-size: 0.72em; }
+.heatmap th { font-weight: 600; color: var(--muted); padding: 2px 4px; }
+.heatmap td { width: 26px; height: 26px; text-align: center; border: 1px solid var(--surface); color: var(--text); cursor: default; }
+.heatmap td.diag { color: transparent; }
+.heatmap-legend { display: flex; align-items: center; gap: 8px; font-size: 0.8em; color: var(--muted); margin: 8px 0; }
+.heatmap-legend .bar { width: 140px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, hsl(215, 70%, 96%), hsl(215, 70%, 40%)); border: 1px solid var(--border); }
+.change-strip { display: flex; gap: 2px; flex-wrap: wrap; margin: 8px 0; }
+.change-strip .cell { width: 26px; height: 40px; border-radius: 3px; background: var(--surface-2); position: relative; overflow: hidden; border: 1px solid var(--border); }
+.change-strip .cell .fill { position: absolute; bottom: 0; left: 0; right: 0; background: var(--accent); }
+.change-strip .cell.switch { border-color: var(--danger); }
+.change-strip .cell.switch .fill { background: var(--danger); }
+.nearest { margin: 6px 0 0 18px; padding: 0; font-size: 0.88em; color: var(--muted); }
+.nearest li { margin: 2px 0; }
+.note-box { background: rgba(180, 83, 9, 0.07); border: 1px solid rgba(180, 83, 9, 0.3); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: 0.9em; color: var(--warn); }
+.history-table td, .history-table th { font-size: 0.85em; }
+.curve-wrap { width: 100%; overflow-x: auto; }

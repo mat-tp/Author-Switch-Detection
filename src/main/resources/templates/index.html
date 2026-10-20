@@ -59,18 +59,21 @@
 
         <div class="card">
             <div class="card-label">Model Status</div>
-            <div th:if="${trained}">
-                <div class="status status-ok">● Model trained</div>
-                <div class="metric-row" th:if="${metrics}"><span>F1 Score</span> <strong th:text="${#numbers.formatDecimal(metrics.f1, 1, 4)}">0</strong></div>
-                <div class="metric-row" th:if="${metrics}"><span>Precision</span> <strong th:text="${#numbers.formatDecimal(metrics.precision, 1, 4)}">0</strong></div>
-                <div class="metric-row" th:if="${metrics}"><span>Recall</span> <strong th:text="${#numbers.formatDecimal(metrics.recall, 1, 4)}">0</strong></div>
-                <a th:href="@{/predict}" class="btn btn-secondary mt">Run Prediction →</a>
-            </div>
-            <div th:unless="${trained}">
-                <div class="status status-warn">● Not trained yet</div>
-                <p class="muted small">Train a classifier on a labelled dataset to enable author-switch prediction.</p>
-                <a th:href="@{/train}" class="btn btn-secondary mt">Train Model →</a>
-            </div>
+            <ul class="model-status">
+                <li th:each="o : ${modelOptions}">
+                    <span th:class="${o.ready} ? 'status-ok' : 'status-warn'" th:text="${o.ready} ? '●' : '○'"></span>
+                    <strong th:text="${o.label}"></strong>
+                    <span class="muted small" th:if="${o.ready}">trained</span>
+                    <span class="muted small" th:if="${!o.ready and o.problem == null}">not trained yet</span>
+                    <span class="muted small" th:if="${!o.ready and o.problem != null}"
+                          th:text="'out of date: ' + ${o.problem}"></span>
+                </li>
+            </ul>
+            <div class="metric-row" th:if="${metrics}"><span>Best run</span>
+                <strong th:text="${metrics.modelLabel} + ' · macro-F1 ' + ${#numbers.formatDecimal(metrics.macroF1, 1, 4)}">0</strong></div>
+            <p class="muted small" th:if="${metrics != null and !metrics.evaluatedOnTest}">That run was scored on the validation split (no held-out test).</p>
+            <a th:if="${trained}" th:href="@{/predict}" class="btn btn-secondary mt">Run Prediction →</a>
+            <a th:unless="${trained}" th:href="@{/train}" class="btn btn-secondary mt">Train Model →</a>
         </div>
     </div>
 
@@ -82,6 +85,8 @@
                 <li><strong>Explore:</strong> view statistics over a labelled dataset</li>
                 <li><strong>Train:</strong> fit a classifier on sentence-pair features</li>
                 <li><strong>Predict:</strong> detect author switches in new text</li>
+                <li><strong>Retrieve:</strong> see which sentences of a text are written alike (retrieval model)</li>
+                <li><strong>Ablation:</strong> read the ablation study that supports the features and models</li>
             </ol>
         </div>
     </details>

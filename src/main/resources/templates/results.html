@@ -6,54 +6,70 @@
 <main>
     <div class="page-header">
         <h1>Evaluation Results</h1>
-        <p class="subtitle">Task 2 (author-switch detection at sentence boundaries) is the primary task.
-            These metrics are from the most recent training run.</p>
+        <p class="subtitle">Author-switch detection at sentence boundaries. The numbers come from the
+            training runs of the models, scored on data that was not used for training or for choosing the threshold.</p>
     </div>
 
     <div class="card" th:if="${!allMetrics.isEmpty()}">
-        <div class="card-label">Compare Trained Models</div>
-        <table class="info-table compare-table mt">
-            <tr><th>Model</th><th>Trained on</th><th>By</th><th>Evaluated on</th><th>F1</th><th>Precision</th><th>Recall</th><th>Balanced Acc.</th><th>Threshold</th></tr>
+        <div class="card-label">Compare trained models <span class="muted">(latest run of every model and source, best macro-F1 first)</span></div>
+        <div class="table-scroll">
+        <table class="data-table mt">
+            <thead>
+            <tr><th>Model</th><th class="left">Source</th><th>Trained</th><th>Evaluated on</th><th>Macro-F1</th><th>F1 (switch)</th>
+                <th>Precision</th><th>Recall</th><th>Bal. acc.</th><th>Threshold</th></tr>
+            </thead>
+            <tbody>
             <tr th:each="m : ${allMetrics}">
-                <td><code th:text="${m.versionName}"></code></td>
-                <td th:text="${m.full} ? 'full dataset' : ('sample (' + ${m.nProblems} + ')')"></td>
-                <td th:text="${m.trainedBy == 'cli'} ? 'CLI (Main.java)' : 'Web'"></td>
-                <td>
+                <td class="left" th:text="${m.modelLabel}"></td>
+                <td class="left" th:text="${m.sourceLabel}"></td>
+                <td th:text="${m.trainedAtDisplay}"></td>
+                <td class="left">
                     <span th:if="${m.evaluatedOnTest}" class="badge badge-ok">held-out test</span>
                     <span th:unless="${m.evaluatedOnTest}" class="badge badge-warn">validation only</span>
                 </td>
+                <td><strong th:text="${#numbers.formatDecimal(m.macroF1, 1, 4)}"></strong></td>
                 <td th:text="${#numbers.formatDecimal(m.f1, 1, 4)}"></td>
                 <td th:text="${#numbers.formatDecimal(m.precision, 1, 4)}"></td>
                 <td th:text="${#numbers.formatDecimal(m.recall, 1, 4)}"></td>
                 <td th:text="${#numbers.formatDecimal(m.balancedAccuracy, 1, 4)}"></td>
-                <td th:text="${m.modelName == 'decision_tree'} ? 'n/a' : ${#numbers.formatDecimal(m.decisionThreshold, 1, 2)}"></td>
+                <td th:text="${#numbers.formatDecimal(m.decisionThreshold, 1, 3)}"></td>
             </tr>
+            </tbody>
         </table>
+        </div>
+        <p class="muted small mt-sm">Macro-F1 is the mean of the F1 of the two classes (same author / switch), the measure
+            PAN 2026 ranks by. On the PAN 2026 test data, always predicting "same author" scores 0.410 / 0.489 / 0.441 (easy / medium / hard) and always predicting "switch" 0.234 / 0.042 / 0.173; the best teams reach about 0.77 on medium and hard.
+            Older runs stay in the file and are listed under <em>Model detail</em>.</p>
     </div>
 
-    <div class="card mt" th:if="${!availableModels.isEmpty()}">
-        <div class="card-label">Model Detail</div>
+    <div class="card mt" th:if="${!modelOptions.isEmpty()}">
+        <div class="card-label">Model detail</div>
         <form method="get" th:action="@{/results}">
             <div class="form-group">
                 <label for="model_name">Model</label>
                 <select id="model_name" name="modelName" onchange="this.form.submit()">
-                    <option th:each="m : ${availableModels}" th:value="${m}" th:text="${m}" th:selected="${m == selectedModel}"></option>
+                    <option th:each="o : ${modelOptions}" th:value="${o.name}" th:text="${o.label}"
+                            th:selected="${o.name == selectedModel}"></option>
                 </select>
             </div>
         </form>
     </div>
 
     <div th:if="${metrics}">
-        <p class="muted small">Showing results for <strong th:text="${metrics.versionName}"></strong>
+        <p class="muted small">Showing the latest run of <strong th:text="${metrics.modelLabel}"></strong>
+            (<span th:text="${metrics.sourceLabel}"></span>, <span th:text="${metrics.trainedAtDisplay}"></span>)
             &mdash;
             <span th:if="${metrics.evaluatedOnTest}" class="badge badge-ok">held-out test split</span>
             <span th:unless="${metrics.evaluatedOnTest}" class="badge badge-warn">validation split only (no test data)</span>
-            <span class="muted small" th:text="${metrics.trainedBy == 'cli'} ? '· trained via Main.java / build.sh' : '· trained via the web Train page'"></span>
         </p>
         <div class="card-grid three-col">
             <div class="metric-card">
+                <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.macroF1, 1, 4)}"></div>
+                <div class="metric-label">Macro-F1</div>
+            </div>
+            <div class="metric-card">
                 <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.f1, 1, 4)}"></div>
-                <div class="metric-label">F1 Score</div>
+                <div class="metric-label">F1 (switch class)</div>
             </div>
             <div class="metric-card">
                 <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.precision, 1, 4)}"></div>
@@ -65,11 +81,15 @@
             </div>
             <div class="metric-card">
                 <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.balancedAccuracy, 1, 4)}"></div>
-                <div class="metric-label">Balanced Accuracy</div>
+                <div class="metric-label">Balanced accuracy</div>
+            </div>
+            <div class="metric-card">
+                <div class="big-metric" th:text="${#numbers.formatDecimal(metrics.decisionThreshold, 1, 3)}"></div>
+                <div class="metric-label">Decision threshold</div>
             </div>
         </div>
-        <p class="muted small mt-sm" th:if="${metrics.modelName != 'decision_tree'}">Decision threshold: <strong th:text="${#numbers.formatDecimal(metrics.decisionThreshold, 1, 2)}"></strong></p>
-        <p class="muted small mt-sm" th:if="${metrics.modelName == 'decision_tree'}">Decision threshold: <strong>n/a</strong>, a decision tree outputs a class, not a probability.</p>
+        <p class="muted small mt-sm" th:if="${metrics.featureConfig != null and !metrics.featureConfig.isEmpty()}">
+            Feature settings: <code th:text="${metrics.featureConfig}"></code></p>
 
         <div class="card mt" th:if="${metrics.difficultyBreakdownCsv != null and !metrics.difficultyBreakdownCsv.isEmpty()}">
             <div class="card-label">Breakdown by difficulty</div>
@@ -92,7 +112,27 @@
 
         <div class="card mt" th:if="${metrics.curveYCsv != null and !metrics.curveYCsv.isEmpty()}">
             <div class="card-label" th:text="${metrics.curveYLabel} + ' over ' + ${metrics.curveXLabel}"></div>
-            <canvas id="training-curve" height="90"></canvas>
+            <div class="curve-wrap"><canvas id="training-curve" width="900" height="260"></canvas></div>
+        </div>
+
+        <div class="card mt" th:if="${history.size() > 1}">
+            <div class="card-label">All runs of this model</div>
+            <div class="table-scroll">
+            <table class="data-table history-table">
+                <thead><tr><th>Trained</th><th>Source</th><th>Evaluated on</th><th>Macro-F1</th><th>F1 (switch)</th><th>Threshold</th><th class="left">Feature settings</th></tr></thead>
+                <tbody>
+                <tr th:each="h : ${history}">
+                    <td th:text="${h.trainedAtDisplay}"></td>
+                    <td th:text="${h.sourceLabel}"></td>
+                    <td th:text="${h.evaluatedOnTest} ? 'test' : 'validation'"></td>
+                    <td th:text="${#numbers.formatDecimal(h.macroF1, 1, 4)}"></td>
+                    <td th:text="${#numbers.formatDecimal(h.f1, 1, 4)}"></td>
+                    <td th:text="${#numbers.formatDecimal(h.decisionThreshold, 1, 3)}"></td>
+                    <td class="left" th:text="${h.featureConfig}"></td>
+                </tr>
+                </tbody>
+            </table>
+            </div>
         </div>
     </div>
 
@@ -102,26 +142,62 @@
 </main>
 <div th:replace="~{fragments :: footer}"></div>
 
-<script th:if="${metrics != null and metrics.curveYCsv != null and !metrics.curveYCsv.isEmpty()}"
-        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script th:if="${metrics != null and metrics.curveYCsv != null and !metrics.curveYCsv.isEmpty()}" th:inline="javascript">
+    /* A small line chart drawn on the canvas, so the page needs no library from a CDN (it works offline). */
     (function () {
-        const xValues = /*[[${metrics.curveXCsv}]]*/ "".split(",").map(Number);
-        const yValues = /*[[${metrics.curveYCsv}]]*/ "".split(",").map(Number);
-        const yLabel = /*[[${metrics.curveYLabel}]]*/ "";
-        const y2Label = /*[[${metrics.curveY2Label}]]*/ "";
-        const y2Csv = /*[[${metrics.curveY2Csv}]]*/ "";
+        const xs = /*[[${metrics.curveXCsv}]]*/ "";
+        const y1 = /*[[${metrics.curveYCsv}]]*/ "";
+        const y2 = /*[[${metrics.curveY2Csv}]]*/ "";
+        const xLabel = /*[[${metrics.curveXLabel}]]*/ "";
+        const label1 = /*[[${metrics.curveYLabel}]]*/ "";
+        const label2 = /*[[${metrics.curveY2Label}]]*/ "";
 
-        const datasets = [{ label: yLabel, data: yValues, borderColor: "#3b6fe0", tension: 0.15, pointRadius: 0 }];
+        const parse = (csv) => (csv ? csv.split(",").map(Number).filter((v) => !Number.isNaN(v)) : []);
+        const series = [{ name: label1, color: "#3b6fe0", values: parse(y1) }];
+        if (label2 && y2) series.push({ name: label2, color: "#dc2626", values: parse(y2) });
+        const xValues = parse(xs);
 
-        if (y2Label && y2Csv) {
-            datasets.push({ label: y2Label, data: y2Csv.split(",").map(Number), borderColor: "#dc2626", tension: 0.15, pointRadius: 0 });
+        const canvas = document.getElementById("training-curve");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const pad = { l: 56, r: 16, t: 14, b: 40 };
+
+        const all = series.flatMap((s) => s.values);
+        let lo = Math.min(...all), hi = Math.max(...all);
+        if (hi - lo < 1e-9) { hi = lo + 1; }
+        const margin = (hi - lo) * 0.08;
+        lo -= margin; hi += margin;
+
+        const n = Math.max(...series.map((s) => s.values.length));
+        const px = (i) => pad.l + (n <= 1 ? 0 : (i / (n - 1)) * (W - pad.l - pad.r));
+        const py = (v) => H - pad.b - ((v - lo) / (hi - lo)) * (H - pad.t - pad.b);
+
+        ctx.font = "12px system-ui, sans-serif";
+        ctx.fillStyle = "#6b7280"; ctx.strokeStyle = "#dde1e8"; ctx.lineWidth = 1;
+        for (let k = 0; k <= 4; k++) {
+            const v = lo + ((hi - lo) * k) / 4;
+            ctx.beginPath(); ctx.moveTo(pad.l, py(v)); ctx.lineTo(W - pad.r, py(v)); ctx.stroke();
+            ctx.textAlign = "right"; ctx.fillText(v.toFixed(3), pad.l - 6, py(v) + 4);
         }
+        ctx.textAlign = "center";
+        const ticks = Math.min(n, 8);
+        for (let k = 0; k < ticks; k++) {
+            const i = ticks === 1 ? 0 : Math.round((k * (n - 1)) / (ticks - 1));
+            const shown = xValues.length > i ? xValues[i] : i + 1;
+            ctx.fillText(String(shown), px(i), H - pad.b + 16);
+        }
+        ctx.fillText(xLabel, (pad.l + W - pad.r) / 2, H - 6);
 
-        new Chart(document.getElementById("training-curve"), {
-            type: "line",
-            data: { labels: xValues, datasets: datasets },
-            options: { responsive: true, scales: { x: { title: { display: true, text: /*[[${metrics.curveXLabel}]]*/ "" } } } }
+        series.forEach((s, index) => {
+            ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.beginPath();
+            s.values.forEach((v, i) => (i === 0 ? ctx.moveTo(px(i), py(v)) : ctx.lineTo(px(i), py(v))));
+            ctx.stroke();
+            if (s.values.length < 40) {
+                ctx.fillStyle = s.color;
+                s.values.forEach((v, i) => { ctx.beginPath(); ctx.arc(px(i), py(v), 3, 0, 6.283); ctx.fill(); });
+            }
+            ctx.fillStyle = s.color; ctx.textAlign = "left";
+            ctx.fillText(s.name, pad.l + 8 + index * 170, pad.t + 10);
         });
     })();
 </script>

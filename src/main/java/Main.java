@@ -1,44 +1,36 @@
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 
-import data.DatasetLoader;
+import data.Corpus;
+import data.PairMatrixBuilder;
 import data.SentencePair;
+import features.FeatureConfig;
 import features.FeatureExtractor;
 import models.DecisionTree;
 import models.LogisticRegression;
 import models.Metrics;
+import models.ModelStore;
 import models.NeuralNetwork;
 
 import com.hyp.authorswitchdetection.model.ModelMetrics;
 import com.hyp.authorswitchdetection.model.ModelMetricsIO;
 
-/*TODO: (1) Utility for saving the model And loading the model.*/
 /*TODO: (1) Importance(G)=F1_all − F1_without G
-    That tells you much more directly whether the group contributes useful predictive information. 
+    That tells you much more directly whether the group contributes useful predictive information.
+    -> done by Ablation.java (feature groups, macro-F1)
 */
 
 /*TODO: (1) Parameter learning for all the Models */
-/*TODO: (1) Difficulty levels: Provide the reporting based on EASY, MEDIUM and HARD */
+/*  -> done by Ablation.java (parameter sweeps, validation ranked) */
 
-/*TODO: (1) Seed variations (42, 123, 456) */
+/*
 
-/* 
-    
     From Previous Logistic Regression Run Not this one Actually:
 
-    The model achieves 92.88% overall accuracy, substantially exceeding the 69.01% majority-class baseline. 
-    It achieves 89.13% precision, 87.72% recall, and an F1-score of 88.42%, indicating that it can identify 
+    The model achieves 92.88% overall accuracy, substantially exceeding the 69.01% majority-class baseline.
+    It achieves 89.13% precision, 87.72% recall, and an F1-score of 88.42%, indicating that it can identify
     author-switch instances while maintaining a relatively low number of false-positive predictions.
 
 */
@@ -46,14 +38,14 @@ import com.hyp.authorswitchdetection.model.ModelMetricsIO;
 public class Main {
 
     // Path to the MAWSA dataset.
-    static final String DATASET_PATH = "dataset/mawsa26-pan-zenodo-DATA/";
+    static final String DATASET_PATH = System.getProperty("dataset", "dataset/mawsa26-pan-zenodo-DATA/");
 
     /*
         Every difficulty level is combined for training/validation/test and the final evaluation is also broken down
         per difficulty (see evaluateByDifficulty) and not just reported combined.
 
      */
-    static final String[] DIFFICULTIES = { "easy", "medium", "hard" };
+    static final String[] DIFFICULTIES = Corpus.DIFFICULTIES;
 
     // The models that can be trained
     // (the constants / helpers below are package-private so Ablation.java reuses
@@ -70,6 +62,9 @@ public class Main {
      * java -cp out Main tree
      * java -cp out Main logistic
      * java -cp out Main neural
+     *
+     * The feature settings come from -D options, see features.FeatureConfig:
+     * java -Dcasing=hybrid -Dchar.n=2,3,4 -Dchar.buckets=512 -Dpair=abs+mean -cp out Main all
      */
     private static final String MODEL_TYPE = ALL_MODELS;
 
@@ -79,33 +74,19 @@ public class Main {
      * true: the FULL validation set is used for validation and no test is done,
      * for when the real testing dataset is available.
      */
-    static final boolean USE_FULL_VALIDATION = false;
-
-    // TODO: parameter learning
-
-    /*
-     * false: COMPRESSED_PAIR_COUNT features per pair (one z-score difference per scalar,
-     * n-gram cosine, overall distance)
-     * true: all features (the compressed ones + 256 n-gram bucket differences), not
-     * compressed. A saved model has to be trained again after changing this.
-     */
-    // false = only the 21 compressed features (much less memory and much faster
-    // model training). The 256 n-gram bucket differences are left out, but the
-    // scalars (FeatureExtractor.SCALAR_NAMES) and the n-gram cosine are still calculated, since
-    // those are part of the compressed vector. Set to true again to bring the 256 buckets back.
-    static final boolean USE_FULL_FEATURES = false;
+    static final boolean USE_FULL_VALIDATION = Boolean.getBoolean("full.validation");
 
     // The file the model is saved to (and loaded from for the inference), in the
     // SAME folder + on-disk format the Spring web app's MlModelLoader reads from
     // (app.trained-models.dir, default "data/models"), so a model trained here
     // from the command line is picked up for live prediction too, not just for
     // the metrics on the Results page.
-    private static final String MODELS_DIR = "data/models/";
+    private static final String MODELS_DIR = System.getProperty("models.dir", "data/models/");
 
     // Where trained-run metrics are appended so they show up on the web app's
     // Results page (same file the Spring app's ModelMetricsStore reads/writes:
     // app.model-metrics.file, default "data/model-metrics.json").
-    private static final String METRICS_FILE = "data/model-metrics.json";
+    private static final String METRICS_FILE = System.getProperty("metrics.file", "data/model-metrics.json");
 
     // Data settings. At most this many training pairs (and per difficulty, this
     // many validation / test pairs) are used. For a quick trial run:
@@ -119,18 +100,15 @@ public class Main {
      * part of the JVM's max heap (-Xmx). The rest is left for the raw text while
      * it is being loaded, for the models while they train, and for the garbage
      * collector. If the data wanted does not fit, ALL the sets are shrunk by the
-     * same fraction (see fractionThatFitsInMemory), so the run finishes instead
+     * same fraction (see PairMatrixBuilder.fractionThatFitsInMemory), so the run finishes instead
      * of ending with "java.lang.OutOfMemoryError: Java heap space".
      */
-    private static final double HEAP_FRACTION_FOR_MATRICES = 0.5;
-
-    // How many training pairs are recomputed the slow (original) way at the end
-    // of buildTrainingMatrix, to check the memory-friendly way gives the same numbers
-    private static final int VERIFY_SAMPLE = 200;
+    static final double HEAP_FRACTION_FOR_MATRICES = 0.5;
 
     // Logistic Regression settings
-    static final int N_ITERATIONS = 10000;
-    static final double LEARNING_RATE = 0.6;
+    static final int N_ITERATIONS = Integer.getInteger("lr.iterations", 10000);
+    static final double LEARNING_RATE = Double.parseDouble(System.getProperty("lr.rate", "0.6"));
+    static final double LR_L2_LAMBDA = Double.parseDouble(System.getProperty("lr.l2", "0.0")); // 0 = no regularisation
     static final boolean USE_CLASS_WEIGHTS = true;
 
     /*
@@ -139,10 +117,13 @@ public class Main {
      * stops when the validation loss no longer improves.
      */
     static final int[] NN_HIDDEN_SIZES = { 128, 64, 32, 16, 8 };
-    static final int NN_MAX_EPOCHS = 60;
-    static final double NN_LEARNING_RATE = 0.001; // learning rate of the plain mini batch gradient descent (no Adam)
+    static final int NN_MAX_EPOCHS = Integer.getInteger("nn.epochs", 60);
+    static final String NN_OPTIMIZER = System.getProperty("nn.optimizer", "adam"); // adam | sgd
+    // Adam needs a small step, the plain mini batch gradient descent a bigger one
+    static final double NN_LEARNING_RATE = Double.parseDouble(
+            System.getProperty("nn.lr", NN_OPTIMIZER.equalsIgnoreCase("sgd") ? "0.05" : "0.001"));
     static final int NN_BATCH_SIZE = 64;
-    static final double NN_L2_LAMBDA = 1e-2; // 0 = no regularisation
+    static final double NN_L2_LAMBDA = Double.parseDouble(System.getProperty("nn.l2", "1e-2")); // 0 = no regularisation
     static final double NN_DROPOUT = 0.2; // chance a hidden neuron is switched off, 0 = no dropout
     static final double NN_FEATURE_CLIP = 5.0; // features are clipped to [-5, 5], 0 = no clipping
     static final int NN_PATIENCE = 8; // 0 = no early stopping
@@ -154,6 +135,8 @@ public class Main {
     static final int TREE_MIN_SAMPLES_SPLIT = 20;
     static final int TREE_MIN_SAMPLES_LEAF = 5;
     static final double TREE_MIN_IMPURITY_DECREASE = 0.0;
+    // 0 = exact CART split search, 16..255 = histogram split search (much faster on a big dataset)
+    static final int TREE_MAX_BINS = Integer.getInteger("tree.bins", 0);
 
     public static void main(String[] args) {
 
@@ -172,164 +155,50 @@ public class Main {
 
         System.out.println("Model: " + modelType);
 
-        /*
-         * The extractor first: all it keeps from the corpus is the vocabulary / IDF
-         * table, so the corpus text itself is dropped straight after.
-         */
-        List<String> trainingCorpus = DatasetLoader.getAllSentences(DATASET_PATH, "train");
-        System.out.println("Training corpus size (all difficulties): " + trainingCorpus.size());
-
-        FeatureExtractor extractor = new FeatureExtractor(trainingCorpus);
-        trainingCorpus = null;
+        // How the features are computed (casing, n-gram orders, buckets, pair representation)
+        FeatureConfig config = FeatureConfig.fromSystemProperties();
+        System.out.println("Feature settings: " + config.signature());
 
         /*
-         * Load the pairs (only the text, the features come later) — ALL 3 difficulty
-         * levels combined (same as the web app's RealTrainer), not just "easy".
-         * Validation & test are loaded per difficulty (so each difficulty can be
-         * evaluated separately below) AND combined (for the overall numbers).
+         * The text of all the splits, loaded once. The width of the pair vector is only needed
+         * for the memory guard, a probe extractor (without a corpus) knows it.
          */
-        List<SentencePair> dataset = new ArrayList<>();
-        for (String difficulty : DIFFICULTIES) {
-            dataset.addAll(DatasetLoader.loadSplit(DATASET_PATH, "train", difficulty));
-        }
+        int pairFeatureCount = new FeatureExtractor(null, config).pairVectorLength();
 
-        System.out.println("Number of training pairs: " + dataset.size());
-        if (dataset.isEmpty()) {
-            System.err.println("No training data was loaded.");
+        Corpus corpus = Corpus.load(DATASET_PATH, USE_FULL_VALIDATION, SUBSET_SIZE, config.casing, pairFeatureCount,
+                HEAP_FRACTION_FOR_MATRICES);
+        if (corpus == null) {
             return;
         }
 
-        Map<String, List<SentencePair>> validationByDifficulty = new LinkedHashMap<>();
-        Map<String, List<SentencePair>> testByDifficulty = new LinkedHashMap<>();
+        Corpus.Datasets d = corpus.build(config);
+        corpus = null; // the raw text is not needed anymore, only the numbers
 
-        for (String difficulty : DIFFICULTIES) {
+        FeatureExtractor extractor = d.extractor;
 
-            List<SentencePair> val = USE_FULL_VALIDATION
-                    ? DatasetLoader.loadSplit(DATASET_PATH, "validation", difficulty)
-                    : DatasetLoader.loadSplitHalf(DATASET_PATH, "validation", difficulty, true);
-            validationByDifficulty.put(difficulty, val);
+        printClassBalance("Training", d.trainY);
+        printFeatureSummary("Training", d.train, extractor);
 
-            if (!USE_FULL_VALIDATION) {
-                // the 2nd half of the validation set, used only once at the end
-                testByDifficulty.put(difficulty,
-                        DatasetLoader.loadSplitHalf(DATASET_PATH, "validation", difficulty, false));
-            }
-        }
-
-        /*
-         * How much of it fits in memory: the wanted sizes are SUBSET_SIZE at most,
-         * and if that is more than the heap can hold, everything is shrunk by the
-         * same fraction (the pairs are shuffled with a fixed seed first, so the
-         * smaller sets are still a fair picture of the whole).
-         */
-        long wantedTrain = Math.min(dataset.size(), SUBSET_SIZE);
-        long wantedEvaluation = 0;
-        for (List<SentencePair> v : validationByDifficulty.values()) {
-            wantedEvaluation += Math.min(v.size(), SUBSET_SIZE);
-        }
-        for (List<SentencePair> t : testByDifficulty.values()) {
-            wantedEvaluation += Math.min(t.size(), SUBSET_SIZE);
-        }
-
-        int pairFeatureCount = FeatureExtractor.COMPRESSED_PAIR_COUNT;
-        if (USE_FULL_FEATURES) {
-            pairFeatureCount += extractor.getFeatures("x").length - FeatureExtractor.SCALAR_COUNT;
-        }
-
-        double fraction = fractionThatFitsInMemory(wantedTrain, wantedEvaluation, pairFeatureCount);
-
-        dataset = takeSubset(dataset, (int) (wantedTrain * fraction));
-        for (String difficulty : DIFFICULTIES) {
-            List<SentencePair> val = validationByDifficulty.get(difficulty);
-            validationByDifficulty.put(difficulty, takeSubset(val, (int) (Math.min(val.size(), SUBSET_SIZE) * fraction)));
-
-            if (!USE_FULL_VALIDATION) {
-                List<SentencePair> test = testByDifficulty.get(difficulty);
-                testByDifficulty.put(difficulty, takeSubset(test, (int) (Math.min(test.size(), SUBSET_SIZE) * fraction)));
-            }
-        }
-
-        System.out.println("Using " + dataset.size() + " training pairs"
-                + (fraction < 1.0 ? " (shrunk to fit the heap; run with a bigger -Xmx to use all)" : " (all of them)") + ".");
-
-        System.out.println();
-        System.out.println("Extracting features for " + dataset.size() + " pairs...");
-
-        double[][] featureMatrix = buildTrainingMatrix(dataset, extractor); // X
-        int[] truthValues = getTruthValues(dataset); // y
-        dataset = null; // the raw text is not needed anymore, only the numbers
-
-        printClassBalance("Training", truthValues);
-        printFeatureSummary("Training", featureMatrix);
-
-        /*
-         * Validation & test data, both not used for training (nor for the z-score
-         * parameters). Every difficulty's matrix is built ONCE, and the combined one
-         * is just those same rows in one array (no second copy of the numbers).
-         */
-        Map<String, double[][]> validationMatrixByDifficulty = new LinkedHashMap<>();
-        Map<String, int[]> validationTruthByDifficulty = new LinkedHashMap<>();
-
-        for (String difficulty : DIFFICULTIES) {
-            List<SentencePair> pairs = validationByDifficulty.get(difficulty);
-            if (pairs != null && !pairs.isEmpty()) {
-                validationMatrixByDifficulty.put(difficulty, buildFeatureMatrix(pairs, extractor));
-                validationTruthByDifficulty.put(difficulty, getTruthValues(pairs));
-            }
-        }
-        validationByDifficulty = null;
-
-        double[][] validationMatrix = null;
-        int[] validationTruthValues = null;
-
-        if (!validationMatrixByDifficulty.isEmpty()) {
-            validationMatrix = joinMatrices(validationMatrixByDifficulty.values());
-            validationTruthValues = joinTruth(validationTruthByDifficulty.values());
-
+        if (d.val != null) {
             System.out.println();
-            System.out.println("Number of validation pairs: " + validationMatrix.length);
-            printClassBalance("Validation", validationTruthValues);
-            printFeatureSummary("Validation", validationMatrix);
+            System.out.println("Number of validation pairs: " + d.val.length);
+            printClassBalance("Validation", d.valY);
+            printFeatureSummary("Validation", d.val, extractor);
         } else {
             System.out.println();
             System.out.println("Number of validation pairs: 0");
         }
 
-        double[][] testMatrix = null;
-        int[] testTruthValues = null;
-        Map<String, double[][]> testMatrixByDifficulty = new LinkedHashMap<>();
-        Map<String, int[]> testTruthByDifficulty = new LinkedHashMap<>();
-
         if (!USE_FULL_VALIDATION) {
-
-            for (String difficulty : DIFFICULTIES) {
-                List<SentencePair> pairs = testByDifficulty.get(difficulty);
-                if (pairs != null && !pairs.isEmpty()) {
-                    testMatrixByDifficulty.put(difficulty, buildFeatureMatrix(pairs, extractor));
-                    testTruthByDifficulty.put(difficulty, getTruthValues(pairs));
-                }
-            }
-            testByDifficulty = null;
-
-            if (!testMatrixByDifficulty.isEmpty()) {
-                testMatrix = joinMatrices(testMatrixByDifficulty.values());
-                testTruthValues = joinTruth(testTruthByDifficulty.values());
-            }
-
-            System.out.println("Number of test pairs: " + (testMatrix == null ? 0 : testMatrix.length));
-
-            if (testMatrix != null) {
-                printClassBalance("Test", testTruthValues);
+            System.out.println("Number of test pairs: " + (d.test == null ? 0 : d.test.length));
+            if (d.test != null) {
+                printClassBalance("Test", d.testY);
             }
         }
 
-        // whichever split the FINAL, combined numbers below come from (test when
-        // available, else validation) is also what the per-difficulty breakdown is
-        // computed from, so the two are always directly comparable
-        Map<String, double[][]> breakdownMatrixByDifficulty = testMatrix != null ? testMatrixByDifficulty
-                : validationMatrixByDifficulty;
-        Map<String, int[]> breakdownTruthByDifficulty = testMatrix != null ? testTruthByDifficulty
-                : validationTruthByDifficulty;
+        if (d.eval != null) {
+            printBaselines(d.evalIsTest ? "Test" : "Validation", d.evalY);
+        }
 
         /*
          * Training, evaluating and saving of the chosen model (or of all the models,
@@ -351,22 +220,13 @@ public class Main {
             }
 
             if (model.equals(DECISION_TREE)) {
-
-                results[m] = trainDecisionTree(featureMatrix, truthValues, validationMatrix, validationTruthValues,
-                        testMatrix, testTruthValues, extractor, modelFilePath, breakdownMatrixByDifficulty,
-                        breakdownTruthByDifficulty);
+                results[m] = trainDecisionTree(d, modelFilePath);
 
             } else if (model.equals(NEURAL_NETWORK)) {
-
-                results[m] = trainNeuralNetwork(featureMatrix, truthValues, validationMatrix, validationTruthValues,
-                        testMatrix, testTruthValues, extractor, modelFilePath, breakdownMatrixByDifficulty,
-                        breakdownTruthByDifficulty);
+                results[m] = trainNeuralNetwork(d, modelFilePath);
 
             } else {
-
-                results[m] = trainLogisticRegression(featureMatrix, truthValues, validationMatrix,
-                        validationTruthValues, testMatrix, testTruthValues, extractor, modelFilePath,
-                        breakdownMatrixByDifficulty, breakdownTruthByDifficulty);
+                results[m] = trainLogisticRegression(d, modelFilePath);
             }
 
             /*
@@ -376,7 +236,7 @@ public class Main {
         }
 
         if (modelsToRun.length > 1) {
-            printSummary(modelsToRun, results, testMatrix != null);
+            printSummary(modelsToRun, results, d.evalIsTest);
         }
     }
 
@@ -423,16 +283,17 @@ public class Main {
      * web app was already running or is started after wards.
      *
      * @param model short model name ("tree" | "logistic" | "neural")
-     * @param result {accuracy, precision, recall, f1, balancedAccuracy} from Metrics.evaluate / DecisionTree.evaluate, or null
+     * @param result {accuracy, precision, recall, f1, balancedAccuracy, macroF1} from Metrics.evaluate, or null
      * @param onTest true if result came from the held-out test split
      * @param nEvalPairs number of pairs result was computed on
      * @param nTrainPairs number of training pairs used
-     * @param threshold decision threshold used (0.5 for the tree)
+     * @param threshold decision threshold used
      * @param chosenConfig short human-readable description of the run's settings
      * @param difficultyBreakdown ";" joined per-difficulty summary (see evaluateByDifficulty), "" if none
      */
     private static void saveMetricsRow(String model, double[] result, boolean onTest, int nEvalPairs,
-                                       int nTrainPairs, double threshold, String chosenConfig, String difficultyBreakdown) {
+                                       int nTrainPairs, double threshold, String chosenConfig, String featureConfig,
+                                       String difficultyBreakdown) {
 
         if (result == null) {
             System.out.println("(No test/validation data — skipping the results.html metrics row for " + model + ".)");
@@ -448,11 +309,13 @@ public class Main {
         m.setRecall(result[2]);
         m.setF1(result[3]);
         m.setBalancedAccuracy(result.length > 4 ? result[4] : 0.0);
+        m.setMacroF1(result.length > 5 ? result[5] : 0.0);
         m.setDecisionThreshold(threshold);
         m.setEvaluatedOnTest(onTest);
         m.setNTestPairs(nEvalPairs);
         m.setDifficultyBreakdownCsv(difficultyBreakdown);
         m.setTrainedBy("cli");
+        m.setFeatureConfig(featureConfig);
         m.setChosenConfig(chosenConfig + (onTest
                 ? " — evaluated on the held-out test split (2nd half of validation, never used for training or thresholding)"
                 : " — no test split was available; evaluated on the validation split instead"));
@@ -465,7 +328,7 @@ public class Main {
      * Prints the results of all the models next to each other.
      *
      * @param models  the names of the models
-     * @param results {accuracy, precision, recall, f1, balancedAccuracy} of each
+     * @param results {accuracy, precision, recall, f1, balancedAccuracy, macroF1} of each
      *                model (null = no result)
      * @param onTest  true: the results are from the test data, false: from the
      *                validation data
@@ -475,8 +338,8 @@ public class Main {
         System.out.println();
         System.out.println("==================== Summary (" + (onTest ? "test" : "validation") + " data) "
                 + "====================");
-        System.out.println(String.format("  %-10s %9s %10s %8s %8s %9s", "Model", "Accuracy", "Precision", "Recall",
-                "F1", "Bal.Acc"));
+        System.out.println(String.format("  %-10s %9s %10s %8s %8s %9s %9s", "Model", "Accuracy", "Precision", "Recall",
+                "F1(chg)", "Bal.Acc", "Macro-F1"));
 
         for (int m = 0; m < models.length; m++) {
 
@@ -485,13 +348,17 @@ public class Main {
                 continue;
             }
 
-            // older result arrays (e.g. before balanced accuracy was added) only have 4
+            // older result arrays (e.g. before balanced accuracy / macro-F1 were added) are shorter
             String balancedAccuracy = results[m].length > 4
                     ? String.format(java.util.Locale.ROOT, "%9.4f", results[m][4])
                     : String.format("%9s", "n/a");
+            String macroF1 = results[m].length > 5
+                    ? String.format(java.util.Locale.ROOT, "%9.4f", results[m][5])
+                    : String.format("%9s", "n/a");
 
-            System.out.println(String.format(java.util.Locale.ROOT, "  %-10s %9.4f %10.4f %8.4f %8.4f %s", models[m],
-                    results[m][0], results[m][1], results[m][2], results[m][3], balancedAccuracy));
+            System.out.println(String.format(java.util.Locale.ROOT, "  %-10s %9.4f %10.4f %8.4f %8.4f %s %s",
+                    models[m], results[m][0], results[m][1], results[m][2], results[m][3], balancedAccuracy,
+                    macroF1));
         }
     }
 
@@ -540,22 +407,132 @@ public class Main {
     }
 
     /**
+     * The part that is the same for the three models: chooses the threshold on the validation
+     * data (macro-F1), uses it ONCE on the test data, breaks the result down per difficulty,
+     * saves the model and the metrics row.
+     *
+     * @param probabilities turns a pair feature matrix into the probabilities of a change
+     * @return {accuracy, precision, recall, f1, balancedAccuracy, macroF1} of the test data (of the
+     *         validation data when there is no test data), null if there is neither
+     */
+    private static double[] evaluateAndSave(String model, Object trainedModel, java.util.function.Function<double[][], double[]> probabilities,
+            Corpus.Datasets d, String modelFilePath, String settings) {
+
+        double threshold = 0.5;
+        double[] result = null;
+
+        if (d.val != null) {
+
+            double[] validationProbabilities = probabilities.apply(d.val);
+
+            System.out.println();
+            System.out.println("Validation with the default threshold 0.5:");
+            Metrics.evaluate(LogisticRegression.predict(validationProbabilities, 0.5), d.valY);
+
+            // The threshold is chosen on the validation data only (best macro-F1, the PAN measure).
+            threshold = LogisticRegression.findBestThreshold(validationProbabilities, d.valY);
+
+            System.out.println();
+            System.out.println("Validation with the best threshold " + threshold + ":");
+            result = Metrics.evaluate(LogisticRegression.predict(validationProbabilities, threshold), d.valY);
+        }
+
+        // Test: used only once with the chosen threshold
+        boolean onTest = d.test != null;
+        final double finalThreshold = threshold;
+
+        if (d.test != null) {
+
+            double[] testProbabilities = probabilities.apply(d.test);
+
+            System.out.println();
+            System.out.println("Test with threshold " + threshold + ":");
+            result = Metrics.evaluate(LogisticRegression.predict(testProbabilities, threshold), d.testY);
+        }
+
+        String difficultyBreakdown = evaluateByDifficulty(onTest ? "Test" : "Validation",
+                matrix -> LogisticRegression.predict(probabilities.apply(matrix), finalThreshold),
+                d.evalByDifficulty, d.evalYByDifficulty);
+
+        /*
+         * PAN scores every difficulty as its own dataset, so the threshold of a level is chosen on the validation
+         * data of THAT level. The saved model keeps the pooled threshold (one number for the web app); these
+         * per-level numbers are for the submission of one dataset: TiraRunner ... --threshold T
+         */
+        StringBuilder perLevel = new StringBuilder();
+        java.util.Map<String, Double> levelThresholds = new java.util.LinkedHashMap<>();
+        if (!d.valByDifficulty.isEmpty()) {
+            System.out.println();
+            System.out.println("Per level with the threshold chosen on that level's own validation data:");
+            for (String difficulty : DIFFICULTIES) {
+                double[][] levelVal = d.valByDifficulty.get(difficulty);
+                double[][] levelEval = d.evalByDifficulty.get(difficulty);
+                if (levelVal == null || levelVal.length == 0 || levelEval == null || levelEval.length == 0) {
+                    continue;
+                }
+                double levelThreshold = LogisticRegression.findBestThreshold(probabilities.apply(levelVal),
+                        d.valYByDifficulty.get(difficulty));
+                double levelMacro = Metrics.evaluateQuietly(
+                        LogisticRegression.predict(probabilities.apply(levelEval), levelThreshold),
+                        d.evalYByDifficulty.get(difficulty))[5];
+                System.out.println(String.format(java.util.Locale.ROOT,
+                        "  %-6s threshold %.3f -> %s macro-F1 %.4f", difficulty, levelThreshold,
+                        onTest ? "test" : "validation", levelMacro));
+                perLevel.append(String.format(java.util.Locale.ROOT, " %s=%.3f(%.4f)", difficulty, levelThreshold,
+                        levelMacro));
+                levelThresholds.put(difficulty, levelThreshold);
+            }
+        }
+        if (perLevel.length() > 0) {
+            settings = settings + " | own threshold per level (macro-F1):" + perLevel;
+        }
+        // saved next to the model, for TiraRunner / the web app (models.LevelRouter); all three levels or none
+        boolean levelsWritten = false;
+        if (levelThresholds.size() == models.DifficultyDetector.LEVELS.length) {
+            try {
+                models.LevelRouter.writeLevels(new java.io.File(modelFilePath), levelThresholds,
+                        "chosen on the first half of the validation split of each level; by Main");
+                levelsWritten = true;
+            } catch (IOException e) {
+                System.err.println("Could not write the thresholds per level: " + e.getMessage());
+            }
+        }
+
+        // Saving the model, into the same folder + format the web app's MlModelLoader reads from
+        try {
+            ModelStore.save(modelFilePath, model, trainedModel, threshold, d.extractor, settings);
+            System.out.println();
+            System.out.println("Model saved successfully to " + modelFilePath);
+            if (levelsWritten) {
+                System.out.println("Thresholds per level saved to " + models.LevelRouter.levelsFile(new java.io.File(modelFilePath))
+                        + " (used with the difficulty detector: ./scripts/build.sh difficulty)");
+            }
+
+        } catch (IOException e) {
+            System.err.println("Error " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        int nEvalPairs = onTest ? d.testY.length : (d.val != null ? d.valY.length : 0);
+        saveMetricsRow(model, result, onTest, nEvalPairs, d.trainY.length, threshold, settings,
+                d.extractor.getConfig().signature(), difficultyBreakdown);
+
+        return result;
+    }
+
+    /**
      * Trains the decision tree, then evaluates it on the validation and test data
      * (combined AND broken down per difficulty) and saves it.
      *
-     * @return {accuracy, precision, recall, f1} of the test data (of the validation
+     * @return {accuracy, precision, recall, f1, balancedAccuracy, macroF1} of the test data (of the validation
      *         data when there is no test data), null if there is neither
      */
-    private static double[] trainDecisionTree(double[][] featureMatrix, int[] truthValues, double[][] validationMatrix,
-                                              int[] validationTruthValues, double[][] testMatrix, int[] testTruthValues, FeatureExtractor extractor,
-                                              String modelFilePath, Map<String, double[][]> breakdownMatrixByDifficulty,
-                                              Map<String, int[]> breakdownTruthByDifficulty) {
+    private static double[] trainDecisionTree(Corpus.Datasets d, String modelFilePath) {
 
-        DecisionTree tree = new DecisionTree(featureMatrix, truthValues, TREE_MAX_DEPTH, TREE_MIN_SAMPLES_SPLIT,
+        DecisionTree tree = new DecisionTree(d.train, d.trainY, TREE_MAX_DEPTH, TREE_MIN_SAMPLES_SPLIT,
                 TREE_MIN_SAMPLES_LEAF, TREE_MIN_IMPURITY_DECREASE);
+        tree.setMaxBins(TREE_MAX_BINS);
         tree.makeBinaryTree();
-
-        double[] result = null;
 
         System.out.println();
         System.out.println("Decision tree training complete.");
@@ -564,138 +541,41 @@ public class Main {
         tree.printTree();
         System.out.println();
 
-        if (validationMatrix != null) {
-            System.out.println("Validation:");
-            result = tree.evaluate(validationMatrix, validationTruthValues);
-        }
+        // The probability of a leaf is the (class weighted) share of changes in it, so the threshold
+        // can be chosen on the validation data like for the other two models.
+        String settings = "max depth=" + TREE_MAX_DEPTH + ", minSamplesSplit=" + TREE_MIN_SAMPLES_SPLIT
+                + ", minSamplesLeaf=" + TREE_MIN_SAMPLES_LEAF
+                + ", splits=" + (TREE_MAX_BINS == 0 ? "exact" : "histogram(" + TREE_MAX_BINS + ")")
+                + ", pair vector " + d.train[0].length;
 
-        boolean onTest = testMatrix != null;
-
-        if (testMatrix != null) {
-            System.out.println();
-            System.out.println("Test:");
-            result = tree.evaluate(testMatrix, testTruthValues);
-        }
-
-        String difficultyBreakdown = evaluateByDifficulty(onTest ? "Test" : "Validation", tree::predictAll,
-                breakdownMatrixByDifficulty, breakdownTruthByDifficulty);
-
-        // Saving decision tree model, into the same folder + format the web app's
-        // MlModelLoader reads from (fullFeatures flag written last)
-        new java.io.File(modelFilePath).getParentFile().mkdirs();
-
-        try (FileOutputStream fileOut = new FileOutputStream(modelFilePath);
-             BufferedOutputStream bos = new BufferedOutputStream(fileOut);
-             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-
-            oos.writeObject(tree);
-            oos.writeObject(extractor);
-            oos.writeBoolean(USE_FULL_FEATURES);
-            System.out.println("Model saved successfully to " + modelFilePath);
-
-        } catch (IOException e) {
-            System.err.println("Error " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        int nEvalPairs = onTest ? testTruthValues.length : (validationMatrix != null ? validationTruthValues.length : 0);
-        saveMetricsRow(DECISION_TREE, result, onTest, nEvalPairs, truthValues.length, 0.5,
-                "max depth=" + TREE_MAX_DEPTH + ", minSamplesSplit=" + TREE_MIN_SAMPLES_SPLIT
-                        + ", minSamplesLeaf=" + TREE_MIN_SAMPLES_LEAF
-                        + ", " + (USE_FULL_FEATURES ? "full" : "compressed") + " features",
-                difficultyBreakdown);
-
-        return result;
+        return evaluateAndSave(DECISION_TREE, tree, tree::predictProbabilities, d, modelFilePath, settings);
     }
 
     /**
      * Trains the logistic regression, chooses the threshold on the validation data,
      * evaluates it on the test data and saves it.
      *
-     * @return {accuracy, precision, recall, f1} of the test data (of the validation
+     * @return {accuracy, precision, recall, f1, balancedAccuracy, macroF1} of the test data (of the validation
      *         data when there is no test data), null if there is neither
      */
-    private static double[] trainLogisticRegression(double[][] featureMatrix, int[] truthValues,
-                                                    double[][] validationMatrix, int[] validationTruthValues, double[][] testMatrix, int[] testTruthValues,
-                                                    FeatureExtractor extractor, String modelFilePath, Map<String, double[][]> breakdownMatrixByDifficulty,
-                                                    Map<String, int[]> breakdownTruthByDifficulty) {
+    private static double[] trainLogisticRegression(Corpus.Datasets d, String modelFilePath) {
 
         System.out.println();
         System.out.println("Training Logistic Regression...");
 
-        double[] weightsBias = LogisticRegression.gradiantDescent(featureMatrix, truthValues, N_ITERATIONS,
-                LEARNING_RATE, USE_CLASS_WEIGHTS);
+        double[] weightsBias = LogisticRegression.gradiantDescent(d.train, d.trainY, N_ITERATIONS,
+                LEARNING_RATE, USE_CLASS_WEIGHTS, LR_L2_LAMBDA, null);
 
         System.out.println();
         System.out.println("Logistic Regression training complete.");
-        System.out.println(
-                "Weights: " + java.util.Arrays.toString(java.util.Arrays.copyOf(weightsBias, weightsBias.length - 1)));
-        System.out.println("Bias: " + weightsBias[weightsBias.length - 1]);
+        printTopWeights(weightsBias, d.extractor.pairFeatureNames());
 
-        double threshold = 0.5;
-        double[] result = null;
+        String settings = "iterations=" + N_ITERATIONS + ", learningRate=" + LEARNING_RATE
+                + ", l2=" + LR_L2_LAMBDA + ", classWeights=" + USE_CLASS_WEIGHTS
+                + ", pair vector " + d.train[0].length;
 
-        if (validationMatrix != null) {
-
-            double[] probabilities = LogisticRegression.predictProbabilities(validationMatrix, weightsBias);
-
-            System.out.println();
-            System.out.println("Validation with the default threshold 0.5:");
-            Metrics.evaluate(LogisticRegression.predict(probabilities, 0.5), validationTruthValues);
-
-            // The threshold is chosen on the validation data only.
-            threshold = LogisticRegression.findBestThreshold(probabilities, validationTruthValues);
-
-            System.out.println();
-            System.out.println("Validation with the best threshold " + threshold + ":");
-            result = Metrics.evaluate(LogisticRegression.predict(probabilities, threshold), validationTruthValues);
-        }
-
-        // Test: used only once with the chosen threshold
-        boolean onTest = testMatrix != null;
-        double finalThreshold = threshold;
-
-        if (testMatrix != null) {
-
-            double[] probabilities = LogisticRegression.predictProbabilities(testMatrix, weightsBias);
-
-            System.out.println();
-            System.out.println("Test with threshold " + threshold + ":");
-            result = Metrics.evaluate(LogisticRegression.predict(probabilities, threshold), testTruthValues);
-        }
-
-        String difficultyBreakdown = evaluateByDifficulty(onTest ? "Test" : "Validation",
-                matrix -> LogisticRegression.predict(LogisticRegression.predictProbabilities(matrix, weightsBias), finalThreshold),
-                breakdownMatrixByDifficulty, breakdownTruthByDifficulty);
-
-        // Saving the model, into the same folder + format the web app's
-        // MlModelLoader reads from (fullFeatures flag written last)
-        new java.io.File(modelFilePath).getParentFile().mkdirs();
-
-        try (FileOutputStream fileOut = new FileOutputStream(modelFilePath);
-             BufferedOutputStream bos = new BufferedOutputStream(fileOut);
-             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-
-            oos.writeObject(weightsBias);
-            oos.writeDouble(threshold);
-            oos.writeObject(extractor);
-            oos.writeBoolean(USE_FULL_FEATURES);
-            System.out.println();
-            System.out.println("Model saved successfully to " + modelFilePath);
-
-        } catch (IOException e) {
-            System.err.println("Error " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        int nEvalPairs = onTest ? testTruthValues.length : (validationMatrix != null ? validationTruthValues.length : 0);
-        saveMetricsRow(LOGISTIC_REGRESSION, result, onTest, nEvalPairs, truthValues.length, threshold,
-                "iterations=" + N_ITERATIONS + ", learningRate=" + LEARNING_RATE
-                        + ", classWeights=" + USE_CLASS_WEIGHTS
-                        + ", " + (USE_FULL_FEATURES ? "full" : "compressed") + " features",
-                difficultyBreakdown);
-
-        return result;
+        return evaluateAndSave(LOGISTIC_REGRESSION, weightsBias,
+                matrix -> LogisticRegression.predictProbabilities(matrix, weightsBias), d, modelFilePath, settings);
     }
 
     /**
@@ -703,22 +583,21 @@ public class Main {
      * the threshold on the validation data, evaluates it on the test data and saves
      * it.
      *
-     * @return {accuracy, precision, recall, f1} of the test data (of the validation
+     * @return {accuracy, precision, recall, f1, balancedAccuracy, macroF1} of the test data (of the validation
      *         data when there is no test data), null if there is neither
      */
-    private static double[] trainNeuralNetwork(double[][] featureMatrix, int[] truthValues, double[][] validationMatrix,
-                                               int[] validationTruthValues, double[][] testMatrix, int[] testTruthValues, FeatureExtractor extractor,
-                                               String modelFilePath, Map<String, double[][]> breakdownMatrixByDifficulty,
-                                               Map<String, int[]> breakdownTruthByDifficulty) {
+    private static double[] trainNeuralNetwork(Corpus.Datasets d, String modelFilePath) {
 
         System.out.println();
         System.out.println("Training Neural Network...");
 
-        NeuralNetwork network = new NeuralNetwork(featureMatrix, truthValues, NN_HIDDEN_SIZES, NN_FEATURE_CLIP);
-        System.out.println("Architecture: " + network.describe());
+        NeuralNetwork network = new NeuralNetwork(d.train, d.trainY, NN_HIDDEN_SIZES, NN_FEATURE_CLIP);
+        network.setOptimizer(NN_OPTIMIZER);
+        System.out.println("Architecture: " + network.describe() + " | optimizer: " + NN_OPTIMIZER
+                + " | learning rate: " + NN_LEARNING_RATE);
 
         network.train(NN_MAX_EPOCHS, NN_LEARNING_RATE, NN_BATCH_SIZE, NN_L2_LAMBDA, NN_DROPOUT, NN_USE_CLASS_WEIGHTS,
-                validationMatrix, validationTruthValues, NN_PATIENCE);
+                d.val, d.valY, NN_PATIENCE);
 
         System.out.println();
         System.out.println("Neural Network training complete.");
@@ -727,71 +606,13 @@ public class Main {
         // (a big gap = over-fitting)
         System.out.println();
         System.out.println("Training data with the default threshold 0.5:");
-        Metrics.evaluate(LogisticRegression.predict(network.predictProbabilities(featureMatrix), 0.5), truthValues);
+        Metrics.evaluate(LogisticRegression.predict(network.predictProbabilities(d.train), 0.5), d.trainY);
 
-        double threshold = 0.5;
-        double[] result = null;
+        String settings = "hidden=" + Arrays.toString(NN_HIDDEN_SIZES) + ", epochs=" + NN_MAX_EPOCHS
+                + ", optimizer=" + NN_OPTIMIZER + ", learningRate=" + NN_LEARNING_RATE + ", l2=" + NN_L2_LAMBDA
+                + ", dropout=" + NN_DROPOUT + ", pair vector " + d.train[0].length;
 
-        if (validationMatrix != null) {
-
-            double[] probabilities = network.predictProbabilities(validationMatrix);
-
-            System.out.println();
-            System.out.println("Validation with the default threshold 0.5:");
-            Metrics.evaluate(LogisticRegression.predict(probabilities, 0.5), validationTruthValues);
-
-            // The threshold is chosen on the validation data only.
-            threshold = LogisticRegression.findBestThreshold(probabilities, validationTruthValues);
-
-            System.out.println();
-            System.out.println("Validation with the best threshold " + threshold + ":");
-            result = Metrics.evaluate(LogisticRegression.predict(probabilities, threshold), validationTruthValues);
-        }
-
-        // Test: used only once with the chosen threshold
-        boolean onTest = testMatrix != null;
-        double finalThreshold = threshold;
-
-        if (testMatrix != null) {
-
-            double[] probabilities = network.predictProbabilities(testMatrix);
-
-            System.out.println();
-            System.out.println("Test with threshold " + threshold + ":");
-            result = Metrics.evaluate(LogisticRegression.predict(probabilities, threshold), testTruthValues);
-        }
-
-        String difficultyBreakdown = evaluateByDifficulty(onTest ? "Test" : "Validation",
-                matrix -> LogisticRegression.predict(network.predictProbabilities(matrix), finalThreshold),
-                breakdownMatrixByDifficulty, breakdownTruthByDifficulty);
-
-        // Saving the model, into the same folder + format the web app's
-        // MlModelLoader reads from (fullFeatures flag written last)
-        new java.io.File(modelFilePath).getParentFile().mkdirs();
-
-        try (FileOutputStream fileOut = new FileOutputStream(modelFilePath);
-             BufferedOutputStream bos = new BufferedOutputStream(fileOut);
-             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-
-            oos.writeObject(network);
-            oos.writeDouble(threshold);
-            oos.writeObject(extractor);
-            oos.writeBoolean(USE_FULL_FEATURES);
-            System.out.println();
-            System.out.println("Model saved successfully to " + modelFilePath);
-
-        } catch (IOException e) {
-            System.err.println("Error " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        int nEvalPairs = onTest ? testTruthValues.length : (validationMatrix != null ? validationTruthValues.length : 0);
-        saveMetricsRow(NEURAL_NETWORK, result, onTest, nEvalPairs, truthValues.length, threshold,
-                "hidden=" + java.util.Arrays.toString(NN_HIDDEN_SIZES) + ", epochs=" + NN_MAX_EPOCHS
-                        + ", " + (USE_FULL_FEATURES ? "full" : "compressed") + " features",
-                difficultyBreakdown);
-
-        return result;
+        return evaluateAndSave(NEURAL_NETWORK, network, network::predictProbabilities, d, modelFilePath, settings);
     }
 
     /**
@@ -806,38 +627,11 @@ public class Main {
         // The label of a new pair is unknown, so -1 is only a placeholder.
         SentencePair testPair = new SentencePair(sentence1, sentence2, -1);
 
-        int prediction;
+        ModelStore.Loaded loaded;
 
-        try (ObjectInputStream ois = new ObjectInputStream(
-                new BufferedInputStream(new FileInputStream(modelFilePath)))) {
-
-            if (modelType.equals(DECISION_TREE)) {
-
-                DecisionTree treeTest = (DecisionTree) ois.readObject();
-                FeatureExtractor extractorTest = (FeatureExtractor) ois.readObject();
-                System.out.println("Model loaded from " + modelFilePath);
-
-                prediction = treeTest.predict(getPairFeatures(testPair, extractorTest));
-
-            } else if (modelType.equals(NEURAL_NETWORK)) {
-
-                NeuralNetwork networkTest = (NeuralNetwork) ois.readObject();
-                double thresholdTest = ois.readDouble();
-                FeatureExtractor extractorTest = (FeatureExtractor) ois.readObject();
-                System.out.println("Model loaded from " + modelFilePath);
-
-                prediction = networkTest.predict(getPairFeatures(testPair, extractorTest), thresholdTest);
-
-            } else {
-
-                double[] weightsBiasTest = (double[]) ois.readObject();
-                double thresholdTest = ois.readDouble();
-                FeatureExtractor extractorTest = (FeatureExtractor) ois.readObject();
-                System.out.println("Model loaded from " + modelFilePath);
-
-                prediction = LogisticRegression.predict(getPairFeatures(testPair, extractorTest), weightsBiasTest,
-                        thresholdTest);
-            }
+        try {
+            loaded = ModelStore.load(modelFilePath);
+            System.out.println("Model loaded from " + modelFilePath);
 
         } catch (IOException | ClassNotFoundException e) {
             System.err.println("Error loading model: " + e.getMessage());
@@ -845,238 +639,52 @@ public class Main {
             return; // nothing to predict with
         }
 
+        double probability = loaded.probability(PairMatrixBuilder.getPairFeatures(testPair, loaded.extractor));
+        int prediction = probability > loaded.threshold ? 1 : 0;
+
         System.out.println();
         System.out.println("Test sentence pair:");
         System.out.println("Sentence 1: " + sentence1);
         System.out.println("Sentence 2: " + sentence2);
-        System.out.println("Prediction: " + prediction);
+        System.out.println(String.format(java.util.Locale.ROOT, "Prediction: %d (probability of a change %.3f, threshold %.3f)",
+                prediction, probability, loaded.threshold));
     }
 
-    /**
-     * Pairwise representation of one pair, using the (LOADED) extractor.
-     */
-    private static double[] getPairFeatures(SentencePair pair, FeatureExtractor extractor) {
+    // ---- The helpers below are kept with their old names, Ablation.java and the tests use them
 
-        double[] features1 = extractor.standardize(extractor.getFeatures(pair.getSentence1()));
-        double[] features2 = extractor.standardize(extractor.getFeatures(pair.getSentence2()));
-
-        double[] pairFeatures = makePairFeatures(pair, features1, features2);
-
-        // same n-gram difference z-score parameters as the training data
-        if (USE_FULL_FEATURES) {
-            pairFeatures = extractor.standardizeNGramDifferences(pairFeatures);
-        }
-
-        return pairFeatures;
-    }
-
-    /**
-     * Builds the feature matrix of pairs, using the z-score parameters of the extractor (fitted on the training data).
-     */
+    /** Builds the feature matrix of pairs, using the z-score parameters of the extractor (fitted on the training data). */
     static double[][] buildFeatureMatrix(List<SentencePair> pairs, FeatureExtractor extractor) {
+        return PairMatrixBuilder.buildFeatureMatrix(pairs, extractor);
+    }
 
-        double[][] matrix = new double[pairs.size()][];
-
-        for (int i = 0; i < pairs.size(); i++) {
-            matrix[i] = getPairFeatures(pairs.get(i), extractor);
-        }
-
-        return matrix;
+    static double[][] buildTrainingMatrix(List<SentencePair> pairs, FeatureExtractor extractor) {
+        return PairMatrixBuilder.buildTrainingMatrix(pairs, extractor);
     }
 
     static int[] getTruthValues(List<SentencePair> pairs) {
-
-        int[] truthValues = new int[pairs.size()];
-
-        for (int i = 0; i < pairs.size(); i++) {
-            truthValues[i] = pairs.get(i).getLabel();
-        }
-
-        return truthValues;
+        return PairMatrixBuilder.getTruthValues(pairs);
     }
 
     /**
-     * Takes at most limit number of pairs. The pairs are shuffled with a fixed seed first,
-     * because the first pairs of the list come from only a few documents and are
-     * not a good picture of the whole split. The chosen pairs are COPIED into a
-     * new list, so the pairs that were not chosen (and the shuffled list) can be
-     * garbage collected instead of staying alive behind a subList view.
+     * Prints the weights of the logistic regression with the largest size, by the NAME of the pair
+     * feature (the whole list of weights is hundreds to thousands of numbers long).
      */
-    static List<SentencePair> takeSubset(List<SentencePair> pairs, int limit) {
+    private static void printTopWeights(double[] weightsBias, String[] names) {
 
-        if (pairs.size() <= limit) {
-            return pairs;
+        int nFeatures = weightsBias.length - 1;
+        Integer[] order = new Integer[nFeatures];
+        for (int i = 0; i < nFeatures; i++) {
+            order[i] = i;
         }
+        Arrays.sort(order, (a, b) -> Double.compare(Math.abs(weightsBias[b]), Math.abs(weightsBias[a])));
 
-        List<SentencePair> shuffled = new ArrayList<>(pairs);
-        Collections.shuffle(shuffled, new Random(42L));
-
-        return new ArrayList<>(shuffled.subList(0, limit));
-    }
-
-    /**
-     * Helper method
-     * Which fraction (0 to 1) of the wanted training / validation / test pairs the heap can hold as
-     * feature matrices. 1.0 = everything fits.
-     *
-     * @param nTrain           training pairs wanted
-     * @param nEvaluation      validation + test pairs wanted
-     * @param pairFeatureCount numbers in one pair's feature vector (277 or 21)
-     */
-    static double fractionThatFitsInMemory(long nTrain, long nEvaluation, int pairFeatureCount) {
-
-        long rowBytes = 8L * pairFeatureCount + 16; // the doubles + the array header
-
-        // while the training matrix is built each pair also keeps the raw scalars of
-        // its two sentences (see buildTrainingMatrix), and its label
-        long trainBytes = rowBytes + 2 * (8L * FeatureExtractor.SCALAR_COUNT + 16) + 4;
-
-        long wanted = nTrain * trainBytes + nEvaluation * rowBytes;
-        long budget = (long) (Runtime.getRuntime().maxMemory() * HEAP_FRACTION_FOR_MATRICES);
-
-        System.out.println();
-        System.out.println(String.format("Memory: max heap %d MB, the feature matrices may use %d MB.",
-                Runtime.getRuntime().maxMemory() / (1024 * 1024), budget / (1024 * 1024)));
-        System.out.println(String.format("        All the wanted data needs about %d MB (run with -Xmx%dm to use it all).",
-                wanted / (1024 * 1024), (long) Math.ceil(wanted / HEAP_FRACTION_FOR_MATRICES / (1024 * 1024))));
-
-        if (wanted <= budget) {
-            return 1.0;
+        System.out.println("Bias: " + weightsBias[nFeatures]);
+        System.out.println("Largest weights (the features are standardised, so the size can be compared):");
+        for (int k = 0; k < Math.min(15, nFeatures); k++) {
+            int i = order[k];
+            System.out.println(String.format(java.util.Locale.ROOT, "  %-36s %9.4f", i < names.length ? names[i] : "feature " + i,
+                    weightsBias[i]));
         }
-
-        double fraction = (double) budget / wanted;
-        System.out.println(String.format("        That does not fit: using %.1f%% of the training, validation and test "
-                + "pairs, so the run does not run out of memory.", fraction * 100));
-
-        return fraction;
-    }
-
-    /**
-     * Feature matrix of the TRAINING pairs, the same numbers as
-     * buildFeatureMatrix would give, but without ever holding the full feature
-     * vectors of all the sentences (2 x 275 numbers per pair) next to the pair
-     * matrix (277 numbers per pair), which more than doubled the memory needed.
-     */
-    static double[][] buildTrainingMatrix(List<SentencePair> pairs, FeatureExtractor extractor) {
-
-        int scalarCount = FeatureExtractor.SCALAR_COUNT;
-        int n = pairs.size();
-
-        double[][] featureMatrix = new double[n][];
-        // I need to make a 2D so that I can concatenate a 2D
-        double[][] scalars1 = new double[n][];
-        double[][] scalars2 = new double[n][];
-        List<double[]> trainingScalars = new ArrayList<>(2 * n);
-
-        for (int i = 0; i < n; i++) {
-
-            double[] features1 = extractor.getFeatures(pairs.get(i).getSentence1());
-            double[] features2 = extractor.getFeatures(pairs.get(i).getSentence2());
-
-            scalars1[i] = java.util.Arrays.copyOf(features1, scalarCount);
-            scalars2[i] = java.util.Arrays.copyOf(features2, scalarCount);
-            trainingScalars.add(scalars1[i]);
-            trainingScalars.add(scalars2[i]);
-
-            // The n-gram part of a pair vector does not use the z-scores standardising.
-            // The z-score slots ([0..18] and [20]) are filled in below.
-            featureMatrix[i] = makePairFeatures(pairs.get(i), features1, features2);
-
-            if ((i + 1) % 10000 == 0 || i == n - 1) {
-                System.out.println("  Processed " + (i + 1) + " / " + n);
-            }
-        }
-
-        // The z-score parameters are fitted on the TRAINING sentences only.
-        extractor.fitScaler(trainingScalars);
-        trainingScalars = null;
-
-        for (int i = 0; i < n; i++) {
-
-            double[] z1 = extractor.standardize(scalars1[i]);
-            double[] z2 = extractor.standardize(scalars2[i]);
-
-            // same arithmetic as SentencePair.getPairFeatures
-            double squaredDistance = 0.0;
-            for (int k = 0; k < scalarCount; k++) {
-                double difference = z1[k] - z2[k];
-                featureMatrix[i][k] = Math.abs(difference);
-                squaredDistance += difference * difference;
-            }
-            featureMatrix[i][scalarCount + 1] = Math.sqrt(squaredDistance / scalarCount);
-
-            scalars1[i] = null;
-            scalars2[i] = null;
-        }
-
-        // The n-gram differences are standardised too (fitted on the TRAINING pairs
-        // only)
-        if (USE_FULL_FEATURES) {
-
-            extractor.fitNGramDifferenceScaler(featureMatrix);
-
-            for (int i = 0; i < featureMatrix.length; i++) {
-                featureMatrix[i] = extractor.standardizeNGramDifferences(featureMatrix[i]);
-            }
-        }
-
-        // verifying features exists
-        for (int i = 0; i < featureMatrix.length; i++) {
-
-            if (featureMatrix[i] == null) {
-                throw new IllegalStateException("Feature vector at index " + i + " is null.");
-            }
-        }
-
-        // The first pairs are done again the slow (original) way, they have to be identical
-        int verified = Math.min(VERIFY_SAMPLE, n);
-        for (int i = 0; i < verified; i++) {
-
-            double[] expected = getPairFeatures(pairs.get(i), extractor);
-
-            if (!java.util.Arrays.equals(expected, featureMatrix[i])) {
-                throw new IllegalStateException("The memory-friendly feature matrix differs from "
-                        + "getPairFeatures at pair " + i + ". Was SentencePair changed? Fix buildTrainingMatrix.");
-            }
-        }
-        System.out.println("  Checked " + verified + " pairs against the original way: identical.");
-
-        return featureMatrix;
-    }
-
-    /** The rows of all the matrices in one array (the rows are shared, not copied). */
-    static double[][] joinMatrices(java.util.Collection<double[][]> matrices) {
-
-        int total = 0;
-        for (double[][] matrix : matrices) {
-            total += matrix.length;
-        }
-
-        double[][] joined = new double[total][];
-        int next = 0;
-        for (double[][] matrix : matrices) {
-            System.arraycopy(matrix, 0, joined, next, matrix.length);
-            next += matrix.length;
-        }
-
-        return joined;
-    }
-
-    static int[] joinTruth(java.util.Collection<int[]> truths) {
-
-        int total = 0;
-        for (int[] truth : truths) {
-            total += truth.length;
-        }
-
-        int[] joined = new int[total];
-        int next = 0;
-        for (int[] truth : truths) {
-            System.arraycopy(truth, 0, joined, next, truth.length);
-            next += truth.length;
-        }
-
-        return joined;
     }
 
     /**
@@ -1084,20 +692,21 @@ public class Main {
      * to see if the scale of the features is reasonable (z-score differences
      * should be mostly between 0 and 3), and if training and validation look alike.
      */
-    private static void printFeatureSummary(String name, double[][] matrix) {
+    private static void printFeatureSummary(String name, double[][] matrix, FeatureExtractor extractor) {
 
         int nFeatures = matrix[0].length;
-        // the n-gram bucket differences (full features) are summarised in one row
-        int shownFeatures = Math.min(nFeatures, FeatureExtractor.COMPRESSED_PAIR_COUNT);
+        // the bucket differences (full features) are summarised in one row
+        int shownFeatures = Math.min(nFeatures, extractor.compressedPairCount());
+        String[] names = extractor.pairFeatureNames();
 
         System.out.println(name + " feature summary (mean / std / max):");
 
         for (int feature = 0; feature < shownFeatures; feature++) {
-            printFeatureRow(String.format("feature %2d", feature), matrix, feature, feature + 1);
+            printFeatureRow(String.format("%-34s", names[feature]), matrix, feature, feature + 1);
         }
 
         if (nFeatures > shownFeatures) {
-            printFeatureRow(String.format("features %d-%d (n-gram differences, averaged)", shownFeatures,
+            printFeatureRow(String.format("features %d-%d (bucket differences, averaged)", shownFeatures,
                     nFeatures - 1), matrix, shownFeatures, nFeatures);
         }
     }
@@ -1153,20 +762,17 @@ public class Main {
     }
 
     /**
-     * Helper method
-     * Pairwise representation of the two sentences, compressed or with all the
-     * features using all the FEATURES defined.
-     * @param pair
-     * @param features1
-     * @param features2
-     * @return
+     * The macro-F1 that predicting a constant gets (the official PAN baselines): everything is "no change",
+     * everything is "change". A model has to be clearly above both.
      */
-    private static double[] makePairFeatures(SentencePair pair, double[] features1, double[] features2) {
+    private static void printBaselines(String name, int[] truthValues) {
 
-        if (USE_FULL_FEATURES) {
-            return pair.getFullPairFeatures(features1, features2);
-        }
+        int[] allZero = new int[truthValues.length];
+        int[] allOne = new int[truthValues.length];
+        Arrays.fill(allOne, 1);
 
-        return pair.getPairFeatures(features1, features2);
+        System.out.println(String.format(java.util.Locale.ROOT,
+                "%s baselines (macro-F1): always 'no change' = %.4f | always 'change' = %.4f", name,
+                Metrics.calcMacroF1(allZero, truthValues), Metrics.calcMacroF1(allOne, truthValues)));
     }
 }

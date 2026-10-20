@@ -118,6 +118,7 @@ public final class ModelMetricsIO {
         sb.append("\"precision\":").append(m.getPrecision()).append(",");
         sb.append("\"recall\":").append(m.getRecall()).append(",");
         sb.append("\"balancedAccuracy\":").append(m.getBalancedAccuracy()).append(",");
+        sb.append("\"macroF1\":").append(m.getMacroF1()).append(",");
         sb.append("\"decisionThreshold\":").append(m.getDecisionThreshold()).append(",");
         sb.append("\"evaluatedOnTest\":").append(m.isEvaluatedOnTest()).append(",");
         sb.append("\"nTestPairs\":").append(m.getNTestPairs()).append(",");
@@ -129,6 +130,7 @@ public final class ModelMetricsIO {
         sb.append("\"trainedAt\":\"").append(m.getTrainedAt()).append("\",");
         sb.append("\"trainedBy\":\"").append(JsonLine.escape(nullToEmpty(m.getTrainedBy()))).append("\",");
         sb.append("\"chosenConfig\":\"").append(JsonLine.escape(nullToEmpty(m.getChosenConfig()))).append("\",");
+        sb.append("\"featureConfig\":\"").append(JsonLine.escape(nullToEmpty(m.getFeatureConfig()))).append("\",");
         sb.append("\"gridResultsCsv\":\"").append(JsonLine.escape(nullToEmpty(m.getGridResultsCsv()))).append("\",");
         sb.append("\"curveXLabel\":\"").append(JsonLine.escape(nullToEmpty(m.getCurveXLabel()))).append("\",");
         sb.append("\"curveYLabel\":\"").append(JsonLine.escape(nullToEmpty(m.getCurveYLabel()))).append("\",");
@@ -153,6 +155,8 @@ public final class ModelMetricsIO {
         m.setRecall(JsonLine.extractDouble(line, "recall"));
         Double balancedAccuracy = JsonLine.extractDouble(line, "balancedAccuracy");
         m.setBalancedAccuracy(balancedAccuracy == null ? 0.0 : balancedAccuracy);
+        Double macroF1 = JsonLine.extractDouble(line, "macroF1");
+        m.setMacroF1(macroF1 == null ? 0.0 : macroF1);
         m.setDecisionThreshold(JsonLine.extractDouble(line, "decisionThreshold"));
         m.setEvaluatedOnTest(JsonLine.extractBoolean(line, "evaluatedOnTest", false));
         m.setNTestPairs(JsonLine.extractInteger(line, "nTestPairs"));
@@ -164,6 +168,7 @@ public final class ModelMetricsIO {
         m.setTrainedAt(LocalDateTime.parse(JsonLine.extractString(line, "trainedAt")));
         m.setTrainedBy(JsonLine.extractString(line, "trainedBy"));
         m.setChosenConfig(JsonLine.extractString(line, "chosenConfig"));
+        m.setFeatureConfig(JsonLine.extractString(line, "featureConfig"));
         m.setGridResultsCsv(JsonLine.extractString(line, "gridResultsCsv"));
         m.setCurveXLabel(JsonLine.extractString(line, "curveXLabel"));
         m.setCurveYLabel(JsonLine.extractString(line, "curveYLabel"));

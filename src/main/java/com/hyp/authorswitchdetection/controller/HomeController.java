@@ -4,6 +4,7 @@ import com.hyp.authorswitchdetection.model.ModelMetrics;
 import com.hyp.authorswitchdetection.model.User;
 import com.hyp.authorswitchdetection.service.CurrentUserService;
 import com.hyp.authorswitchdetection.service.TrainingService;
+import com.hyp.authorswitchdetection.service.classifier.ClassifierRegistry;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -16,8 +17,11 @@ public class HomeController {
 
     private final TrainingService trainingService;
     private final CurrentUserService currentUserService;
+    private final ClassifierRegistry classifierRegistry;
 
-    public HomeController(TrainingService trainingService, CurrentUserService currentUserService) {
+    public HomeController(TrainingService trainingService, CurrentUserService currentUserService,
+            ClassifierRegistry classifierRegistry) {
+        this.classifierRegistry = classifierRegistry;
         this.trainingService = trainingService;
         this.currentUserService = currentUserService;
     }
@@ -27,12 +31,13 @@ public class HomeController {
         User user = currentUserService.getCurrentUser(session).orElse(null);
         model.addAttribute("currentUser", user);
 
-        boolean trained = trainingService.isAnyModelTrained();
-        model.addAttribute("trained", trained);
-        if (trained) {
-            List<ModelMetrics> best = trainingService.allMetricsByF1Desc();
-            model.addAttribute("metrics", best.isEmpty() ? null : best.get(0));
-        }
+        // what can be used right now is decided by the model files, not by the metrics rows
+        List<ClassifierRegistry.Option> options = classifierRegistry.options();
+        model.addAttribute("modelOptions", options);
+        model.addAttribute("trained", options.stream().anyMatch(o -> o.ready()));
+
+        List<ModelMetrics> runs = trainingService.latestRuns();
+        model.addAttribute("metrics", runs.isEmpty() ? null : runs.get(0));
         return "index";
     }
 }

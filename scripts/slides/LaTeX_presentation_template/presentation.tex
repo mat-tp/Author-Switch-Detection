@@ -5,8 +5,209 @@
 \usepackage{url}
 \usepackage[export]{adjustbox}
 \usepackage{booktabs,amsmath}
+\usepackage[table]{xcolor}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,calc,fit,backgrounds,decorations.pathreplacing}
+
+% ---- small helpers --------------------------------------------------------
+\newcommand{\chip}[2]{\tikz[baseline=(c.base)]\node[draw=ujpurple!45,fill=ujpurple!6,rounded corners=3pt,inner xsep=5pt,inner ysep=3pt,font=\scriptsize] (c) {\textcolor{ujpurple!80}{#1}\ \textbf{#2}};}
+\tikzset{
+  sbox/.style={draw=none,rounded corners=3pt,minimum height=0.8cm,minimum width=1.55cm,font=\scriptsize\bfseries},
+  stage/.style={draw=ujpurple!55,fill=white,rounded corners=5pt,minimum height=1.15cm,minimum width=1.55cm,align=center,font=\scriptsize\bfseries,line width=0.8pt},
+  arr/.style={-{Stealth[length=2mm]},thick,ujpurple!70},
+  leaf0/.style={draw=none,fill=ujpurple!25,rounded corners=2pt,font=\scriptsize\bfseries,minimum width=1.3cm,minimum height=0.6cm},
+  leaf1/.style={draw=none,fill=ujorange!45,rounded corners=2pt,font=\scriptsize\bfseries,minimum width=1.3cm,minimum height=0.6cm},
+  split/.style={draw=ujpurple,fill=ujpurple!8,rounded corners=3pt,font=\footnotesize,inner sep=4pt,align=center},
+}
+\tikzset{
+  card/.style={draw=ujpurple!35,fill=white,rounded corners=6pt,line width=0.7pt},
+  num/.style={circle,fill=ujorange,text=white,font=\tiny\bfseries,minimum size=0.45cm,inner sep=0},
+}
+\definecolor{famL}{HTML}{E35205}
+\definecolor{famO}{HTML}{7D6A99}
+\definecolor{famV}{HTML}{E2B911}
+\definecolor{famR}{HTML}{5B9BD5}
+% one pair-vector strip: 14 scalar differences (coloured by family), cosine, distance, 256 bucket differences
+\newcommand{\pairstrip}[1]{% #1 = cell size in cm
+  \foreach \i/\c in {0/famL,1/famL,2/famV,3/famO,4/famO,5/famO,6/famL,7/famV,8/famV,9/famV,10/famO,11/famR,12/famR,13/famR}{\fill[\c] ({\i*#1*1.12},0) rectangle ++(#1,#1);}
+  \fill[ujyellow!60!ujorange] ({14*#1*1.12},0) rectangle ++(#1,#1);
+  \fill[ujpurple] ({15*#1*1.12},0) rectangle ++(#1,#1);
+  \fill[gray!35,rounded corners=1pt] ({16.3*#1*1.12},0) rectangle ++({10*#1},#1);
+}
+% tiny glyphs for the overview card
+\newcommand{\treeglyph}{\begin{tikzpicture}[scale=0.42]
+  \draw[ujpurple,thick] (0,0)--(-1,-1)--(-1.5,-2) (-1,-1)--(-0.5,-2) (0,0)--(1,-1)--(0.5,-2) (1,-1)--(1.5,-2);
+  \fill[ujpurple] (0,0) circle (0.2) (-1,-1) circle (0.2) (1,-1) circle (0.2);
+  \fill[ujpurple!25] (-1.5,-2) circle (0.18) (0.5,-2) circle (0.18);\fill[ujorange] (-0.5,-2) circle (0.18) (1.5,-2) circle (0.18);
+\end{tikzpicture}}
+\newcommand{\sigglyph}{\begin{tikzpicture}[scale=0.42]
+  \draw[gray] (-2,0)--(2,0) (0,-0.2)--(0,2.1);
+  \draw[ujorange,very thick,smooth,domain=-2:2,samples=30] plot (\x,{2/(1+exp(-2.2*\x))});
+\end{tikzpicture}}
+\newcommand{\netglyph}{\begin{tikzpicture}[scale=0.42]
+  \foreach \x/\n in {0/3,1.6/4,3.2/4,4.8/1}{\foreach \i in {1,...,\n}{\fill[ujpurple!70] (\x,{(\i-(\n+1)/2)*0.75+1}) circle (0.2);}}
+  \fill[ujorange] (4.8,1) circle (0.2);
+\end{tikzpicture}}
+
+% ---- ablation figures (inlined from data/ablation/ablation_results.csv, partial run) ----
+\newcommand{\AblationFeatureFigure}{%
+\begin{tikzpicture}[x=1cm,y=1cm,font=\scriptsize]
+\node[font=\scriptsize\bfseries,text=ujpurple] at (3.73,0.55) {Decision tree};
+\node[font=\tiny,text=gray] at (3.73,0.2) {baseline F1 0.425};
+\node[font=\scriptsize\bfseries,text=ujpurple] at (6.53,0.55) {Logistic regression};
+\node[font=\tiny,text=gray] at (6.53,0.2) {baseline F1 0.474};
+\node[font=\scriptsize\bfseries,text=ujpurple] at (9.33,0.55) {Neural network};
+\node[font=\tiny,text=gray] at (9.33,0.2) {baseline F1 0.456};
+\fill[ujorange!6] (0,0.00) rectangle (10.60,-0.34);
+\node[anchor=east] at (2.35,-0.17) {Char 3-grams};
+\fill[ujpurple!70] (3.73,-0.06) rectangle (3.58,-0.28);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-0.17) {-0.004};
+\fill[ujorange] (6.53,-0.06) rectangle (7.25,-0.28);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (7.30,-0.17) {0.021};
+\fill[ujorange] (9.33,-0.06) rectangle (9.42,-0.28);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.47,-0.17) {0.003};
+\node[anchor=east] at (2.35,-0.51) {Word length};
+\fill[ujorange] (3.73,-0.40) rectangle (3.99,-0.62);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (4.04,-0.51) {0.008};
+\fill[ujorange] (6.53,-0.40) rectangle (6.61,-0.62);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.66,-0.51) {0.002};
+\fill[ujorange] (9.33,-0.40) rectangle (9.49,-0.62);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.54,-0.51) {0.005};
+\fill[ujorange!6] (0,-0.68) rectangle (10.60,-1.02);
+\node[anchor=east] at (2.35,-0.85) {Frequent words};
+\fill[ujorange] (3.73,-0.74) rectangle (3.80,-0.96);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.85,-0.85) {0.002};
+\fill[ujorange] (6.53,-0.74) rectangle (6.53,-0.96);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.58,-0.85) {0.000};
+\fill[ujorange] (9.33,-0.74) rectangle (9.33,-0.96);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.38,-0.85) {0.000};
+\node[anchor=east] at (2.35,-1.19) {Type-token ratio};
+\fill[ujorange] (3.73,-1.08) rectangle (3.80,-1.30);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.85,-1.19) {0.002};
+\fill[ujpurple!70] (6.53,-1.08) rectangle (6.52,-1.30);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.58,-1.19) {0.000};
+\fill[ujpurple!70] (9.33,-1.08) rectangle (9.31,-1.30);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.38,-1.19) {0.000};
+\fill[ujorange!6] (0,-1.36) rectangle (10.60,-1.70);
+\node[anchor=east] at (2.35,-1.53) {Emotion};
+\fill[ujpurple!70] (3.73,-1.42) rectangle (3.57,-1.64);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-1.53) {-0.005};
+\fill[ujorange] (6.53,-1.42) rectangle (6.54,-1.64);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.59,-1.53) {0.000};
+\fill[ujorange] (9.33,-1.42) rectangle (9.34,-1.64);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.39,-1.53) {0.000};
+\node[anchor=east] at (2.35,-1.87) {TF-IDF};
+\fill[ujpurple!70] (3.73,-1.76) rectangle (3.54,-1.98);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-1.87) {-0.005};
+\fill[ujorange] (6.53,-1.76) rectangle (6.53,-1.98);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.58,-1.87) {0.000};
+\fill[ujorange] (9.33,-1.76) rectangle (9.33,-1.98);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.38,-1.87) {0.000};
+\fill[ujorange!6] (0,-2.04) rectangle (10.60,-2.38);
+\node[anchor=east] at (2.35,-2.21) {Digits \& capitals};
+\fill[ujpurple!70] (3.73,-2.10) rectangle (3.49,-2.32);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-2.21) {-0.007};
+\fill[ujpurple!70] (6.53,-2.10) rectangle (6.49,-2.32);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.58,-2.21) {-0.001};
+\fill[ujorange] (9.33,-2.10) rectangle (9.37,-2.32);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.42,-2.21) {0.001};
+\node[anchor=east] at (2.35,-2.55) {Flesch-Kincaid};
+\fill[ujpurple!70] (3.73,-2.44) rectangle (3.48,-2.66);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-2.55) {-0.007};
+\fill[ujpurple!70] (6.53,-2.44) rectangle (6.52,-2.66);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.58,-2.55) {0.000};
+\fill[ujpurple!70] (9.33,-2.44) rectangle (9.30,-2.66);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.38,-2.55) {-0.001};
+\fill[ujorange!6] (0,-2.72) rectangle (10.60,-3.06);
+\node[anchor=east] at (2.35,-2.89) {Sentence length};
+\fill[ujpurple!70] (3.73,-2.78) rectangle (2.93,-3.00);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-2.89) {-0.023};
+\fill[ujorange] (6.53,-2.78) rectangle (6.76,-3.00);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.81,-2.89) {0.007};
+\fill[ujorange] (9.33,-2.78) rectangle (9.52,-3.00);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.57,-2.89) {0.006};
+\node[anchor=east] at (2.35,-3.23) {Flesch ease};
+\fill[ujpurple!70] (3.73,-3.12) rectangle (2.85,-3.34);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-3.23) {-0.025};
+\fill[ujorange] (6.53,-3.12) rectangle (6.62,-3.34);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.67,-3.23) {0.003};
+\fill[ujorange] (9.33,-3.12) rectangle (9.48,-3.34);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.53,-3.23) {0.004};
+\fill[ujorange!6] (0,-3.40) rectangle (10.60,-3.74);
+\node[anchor=east] at (2.35,-3.57) {Punct. variety};
+\fill[ujpurple!70] (3.73,-3.46) rectangle (2.99,-3.68);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-3.57) {-0.021};
+\fill[ujorange] (6.53,-3.46) rectangle (6.55,-3.68);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.60,-3.57) {0.001};
+\fill[ujorange] (9.33,-3.46) rectangle (9.35,-3.68);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.40,-3.57) {0.001};
+\node[anchor=east] at (2.35,-3.91) {Punctuation};
+\fill[ujpurple!70] (3.73,-3.80) rectangle (2.92,-4.02);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-3.91) {-0.023};
+\fill[ujorange] (6.53,-3.80) rectangle (6.54,-4.02);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.59,-3.91) {0.000};
+\fill[ujorange] (9.33,-3.80) rectangle (9.33,-4.02);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.38,-3.91) {0.000};
+\fill[ujorange!6] (0,-4.08) rectangle (10.60,-4.42);
+\node[anchor=east] at (2.35,-4.25) {Gunning Fog};
+\fill[ujpurple!70] (3.73,-4.14) rectangle (2.80,-4.36);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (3.77,-4.25) {-0.026};
+\fill[ujorange] (6.53,-4.14) rectangle (6.62,-4.36);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (6.67,-4.25) {0.003};
+\fill[ujorange] (9.33,-4.14) rectangle (9.35,-4.36);
+\node[anchor=west,font=\tiny,text=gray!70!black] at (9.40,-4.25) {0.001};
+\draw[gray!60] (3.73,0) -- (3.73,-4.42);
+\draw[gray!60] (6.53,0) -- (6.53,-4.42);
+\draw[gray!60] (9.33,0) -- (9.33,-4.42);
+\node[font=\tiny,text=gray,anchor=north west] at (0,-4.52) {Importance $=$ F1$_{\text{all}}$ $-$ F1$_{\text{without group}}$ \quad (\textcolor{ujorange}{\rule{1ex}{1ex}} helps \; \textcolor{ujpurple!70}{\rule{1ex}{1ex}} hurts)};
+\end{tikzpicture}}
+
+\newcommand{\AblationParamFigure}{%
+\begin{tikzpicture}[x=1cm,y=1cm,font=\scriptsize]
+\node[anchor=west,font=\scriptsize\bfseries,text=ujpurple] at (0,-0.14) {Decision tree};
+\node[anchor=east] at (2.75,-0.45) {max\_depth};
+\draw[line width=3pt,ujpurple!25,line cap=round] (4.75,-0.45) -- (7.82,-0.45);
+\fill[ujpurple] (6.73,-0.45) circle (0.075);
+\draw[ujorange,line width=0.9pt] (7.82,-0.45) circle (0.11);
+\node[anchor=east] at (2.75,-0.72) {min\_samples\_split};
+\draw[line width=3pt,ujpurple!25,line cap=round] (6.73,-0.72) -- (6.73,-0.72);
+\fill[ujpurple] (6.73,-0.72) circle (0.075);
+\draw[ujorange,line width=0.9pt] (6.73,-0.72) circle (0.11);
+\node[anchor=east] at (2.75,-0.99) {min\_samples\_leaf};
+\draw[line width=3pt,ujpurple!25,line cap=round] (6.73,-0.99) -- (6.73,-0.99);
+\fill[ujpurple] (6.73,-0.99) circle (0.075);
+\draw[ujorange,line width=0.9pt] (6.73,-0.99) circle (0.11);
+\node[anchor=east] at (2.75,-1.26) {min\_impurity\_decrease};
+\draw[line width=3pt,ujpurple!25,line cap=round] (6.73,-1.26) -- (7.33,-1.26);
+\fill[ujpurple] (6.73,-1.26) circle (0.075);
+\draw[ujorange,line width=0.9pt] (7.33,-1.26) circle (0.11);
+\node[anchor=east] at (2.75,-1.53) {class\_weights};
+\draw[line width=3pt,ujpurple!25,line cap=round] (6.73,-1.53) -- (7.03,-1.53);
+\fill[ujpurple] (6.73,-1.53) circle (0.075);
+\draw[ujorange,line width=0.9pt] (6.73,-1.53) circle (0.11);
+\node[anchor=west,font=\scriptsize\bfseries,text=ujpurple] at (0,-1.89) {Logistic regression};
+\node[anchor=east] at (2.75,-2.20) {learning\_rate};
+\draw[line width=3pt,ujpurple!25,line cap=round] (8.50,-2.20) -- (9.17,-2.20);
+\fill[ujpurple] (9.17,-2.20) circle (0.075);
+\draw[ujorange,line width=0.9pt] (9.17,-2.20) circle (0.11);
+\node[anchor=east] at (2.75,-2.47) {iterations};
+\draw[line width=3pt,ujpurple!25,line cap=round] (8.38,-2.47) -- (9.17,-2.47);
+\fill[ujpurple] (9.17,-2.47) circle (0.075);
+\draw[ujorange,line width=0.9pt] (9.17,-2.47) circle (0.11);
+\node[anchor=east] at (2.75,-2.74) {class\_weights};
+\draw[line width=3pt,ujpurple!25,line cap=round] (9.17,-2.74) -- (9.22,-2.74);
+\fill[ujpurple] (9.17,-2.74) circle (0.075);
+\draw[ujorange,line width=0.9pt] (9.22,-2.74) circle (0.11);
+\draw[gray!35] (2.90,-2.97) -- (2.90,0.1);
+\node[font=\tiny,text=gray,anchor=north] at (2.90,-2.97) {0.35};
+\draw[gray!35] (5.43,-2.97) -- (5.43,0.1);
+\node[font=\tiny,text=gray,anchor=north] at (5.43,-2.97) {0.40};
+\draw[gray!35] (7.97,-2.97) -- (7.97,0.1);
+\node[font=\tiny,text=gray,anchor=north] at (7.97,-2.97) {0.45};
+\draw[gray!35] (10.50,-2.97) -- (10.50,0.1);
+\node[font=\tiny,text=gray,anchor=north] at (10.50,-2.97) {0.50};
+\node[font=\tiny,text=gray,anchor=north west] at (0,-3.27) {Test F1 across the values tried. \textcolor{ujpurple}{$\bullet$} current setting \; \textcolor{ujorange}{$\circ$} best on validation};
+\end{tikzpicture}}
 
 \title{Sentence Style Detection for Author Switches}
 \subtitle{Author Switch Detection}
@@ -28,7 +229,31 @@
 
 %% ---------------- Problem statement ----------------
 \section[Problem]{Problem Statement}
-\begin{frame}{Problem statement}
+\begin{frame}{Problem statement: binary classification}
+\centering
+\begin{tikzpicture}
+  % sentences, coloured by their (hidden) author
+  \foreach \i/\c in {1/ujpurple!28,2/ujpurple!28,3/ujorange!45,4/ujorange!45,5/ujpurple!28,6/ujpurple!28}{
+    \node[sbox,fill=\c] (s\i) at ({(\i-1)*2.3},0) {$S_{\i}$};
+    \foreach \l in {-0.14,0,0.14}{} 
+  }
+  % the decision for every adjacent pair
+  \foreach \i/\j/\y in {1/2/0,2/3/1,3/4/0,4/5/1,5/6/0}{
+    \draw[gray!60] ($(s\i)!0.5!(s\j)$) ++(0,-0.4) -- ++(0,-0.55);
+    \ifnum\y=1
+      \node[circle,fill=ujorange,text=white,font=\footnotesize\bfseries,minimum size=0.62cm,inner sep=0] at ($(s\i)!0.5!(s\j)+(0,-1.25)$) {1};
+    \else
+      \node[circle,draw=ujpurple,fill=white,text=ujpurple,font=\footnotesize\bfseries,minimum size=0.62cm,inner sep=0] at ($(s\i)!0.5!(s\j)+(0,-1.25)$) {0};
+    \fi
+  }
+  \node[font=\scriptsize,text=gray,anchor=east] at (-0.95,-1.25) {$y_i$};
+  % legend
+  \node[sbox,fill=ujpurple!28,minimum width=1.3cm,minimum height=0.5cm,font=\tiny] at (3.1,1.05) {author A};
+  \node[sbox,fill=ujorange!45,minimum width=1.3cm,minimum height=0.5cm,font=\tiny] at (4.7,1.05) {author B};
+  \node[font=\tiny,text=gray] at (6.4,1.05) {(hidden at test time)};
+\end{tikzpicture}
+
+\medskip
 \textbf{Formally:} for a document $D=\{S_1,\ldots,S_n\}$, predict for every adjacent pair $(S_i,S_{i+1})$:
 \[
 y_i =
@@ -40,276 +265,427 @@ y_i =
 \end{frame}
 
 \begin{frame}{Why is it interesting?}
-\begin{itemize}\itemsep0.7em
-\item \textbf{A difficult problem:} author style is subtle, especially when the topic is controlled
-\item \textbf{Short evidence:} one sentence carries only a small trace of the author
-\item \textbf{Descriptive cues:} short style features (length, punctuation, vocabulary) can still describe an author
-\item \textbf{Interpretable:} we can see which cues drive a decision
-\item \textbf{Useful:} plagiarism detection and analysis of co-authored text
-\end{itemize}
+\centering
+\begin{tikzpicture}
+  \foreach \i/\h/\t in {1/Difficult/subtle style\\topic controlled, 2/Short evidence/one sentence\\one small trace, 3/Descriptive cues/length{,} punctuation{,}\\vocabulary, 4/Interpretable/we see which cues\\drive a decision, 5/Useful/plagiarism{,}\\co-authored text}{
+    \node[card,minimum width=2.45cm,minimum height=3.3cm] at ({(\i-1)*2.7},0) {};
+    \node[num,minimum size=0.7cm,font=\small\bfseries] at ({(\i-1)*2.7},0.95) {\i};
+    \node[font=\footnotesize\bfseries,text=ujpurple,align=center] at ({(\i-1)*2.7},0.1) {\h};
+    \node[font=\scriptsize,text=gray,align=center] at ({(\i-1)*2.7},-0.8) {\t};
+  }
+\end{tikzpicture}
 \end{frame}
 
 %% ---------------- (1) Representation & features ----------------
 \section[Features]{Representation \& Features}
-\begin{frame}{Task and data}
+\begin{frame}{Dataset: PAN 2026 multi-author writing style analysis}
+\centering
+\begin{tikzpicture}
+  % one problem
+  \node[font=\scriptsize\bfseries,text=ujpurple] at (1.7,2.55) {one problem = one document};
+  \foreach \i/\c/\w in {1/ujpurple!28/2.7, 2/ujpurple!28/3.0, 3/ujorange!45/2.4, 4/ujorange!45/3.1, 5/ujpurple!28/2.2, 6/ujpurple!28/2.8, 7/ujorange!45/2.5}{
+    \fill[\c,rounded corners=2pt] (0,{2.0-\i*0.42}) rectangle ++(\w,0.3);
+    \node[font=\tiny,text=gray,anchor=east] at (-0.05,{2.15-\i*0.42}) {\i};
+  }
+  \foreach \i/\y in {1/0, 2/1, 3/0, 4/1, 5/0, 6/1}{
+    \ifnum\y=1 \fill[ujorange] (3.35,{1.8-\i*0.42}) circle (0.1); \else \draw[ujpurple] (3.35,{1.8-\i*0.42}) circle (0.1); \fi
+  }
+  \node[font=\tiny,text=gray] at (1.5,-1.2) {problem-N.txt: one sentence per line};
+  \node[font=\tiny,text=gray] at (1.8,-1.5) {truth-problem-N.json: 0 / 1 per boundary};
+
+  % numbers
+  \foreach \i/\big/\t in {0/31{,}500/training problems\\(10{,}500 per difficulty), 1/2.47M/sentences, 2/2.44M/sentence pairs, 3/14.3\%/author switches}{
+    \pgfmathtruncatemacro{\c}{mod(\i,2)} \pgfmathtruncatemacro{\r}{int(\i/2)}
+    \node[card,minimum width=2.45cm,minimum height=1.45cm] at ({5.9+\c*2.6},{1.75-\r*1.6}) {};
+    \node[font=\large\bfseries,text=ujorange] at ({5.9+\c*2.6},{1.95-\r*1.6}) {\big};
+    \node[font=\tiny,text=gray,align=center] at ({5.9+\c*2.6},{1.4-\r*1.6}) {\t};
+  }
+  \node[font=\tiny,text=gray] at (6.5,-1.5) {fanfiction-derived\ $\cdot$\ easy\,/\,medium\,/\,hard};
+
+  % splits
+  \node[font=\scriptsize\bfseries,text=ujpurple] at (11.9,2.55) {splits (by document)};
+  \fill[ujpurple!25,rounded corners=3pt] (10.4,0.35) rectangle (13.4,1.95);
+  \node[font=\scriptsize\bfseries,text=ujpurple] at (11.9,1.35) {Train};
+  \node[font=\tiny,text=gray] at (11.9,0.95) {2,439,074 pairs};
+  \fill[ujorange!35,rounded corners=3pt] (10.4,-0.55) rectangle (13.4,0.25);
+  \node[font=\scriptsize\bfseries,text=ujorange!80!black] at (11.9,-0.08) {Validation};
+  \node[font=\tiny,text=gray] at (11.9,-0.35) {264,150 pairs};
+  \fill[ujorange,rounded corners=3pt] (10.4,-1.45) rectangle (13.4,-0.65);
+  \node[font=\scriptsize\bfseries,text=white] at (11.9,-1.03) {Test};
+  \node[font=\tiny,text=white] at (11.9,-1.28) {259,653 pairs};
+\end{tikzpicture}
+
 \medskip
-\begin{columns}[T]
-\begin{column}{0.5\textwidth}
-\begin{itemize}
-\item PAN 2026 data
-\item Easy: topic changes with author. Medium/hard: topic is controlled
-\item 2,439,074 training pairs, about 14.3\% of them are switches
-\end{itemize}
-\end{column}
-\begin{column}{0.5\textwidth}
-\centering\small
-\begin{tabular}{lrr}
-\toprule
-& \textbf{Pairs} & \textbf{Switch rate}\\
-\midrule
-Easy & 549,804 & 30.5\%\\
-Medium & 1,299,324 & 4.4\%\\
-Hard & 589,946 & 20.9\%\\
-\bottomrule
-\end{tabular}
-\end{column}
-\end{columns}
-\medskip
-Switch rates differ sharply by difficulty (easy, medium and hard).
+\chip{test}{official validation, 2nd half}\ \chip{halves}{document disjoint, seed 42}\ \chip{source}{Zangerle et al., 2026}
+\end{frame}
+
+\begin{frame}{Dataset: three difficulty levels}
+\centering
+\begin{tikzpicture}
+  \node[font=\footnotesize] at (5.2,2.0) {\textbf{PAN 2026}\ \ $\cdot$\ \ \textbf{2,439,074} training pairs\ \ $\cdot$\ \ \textbf{14.3\%} switches};
+  \foreach \y/\name/\sw/\n/\tag in {0.7/Easy/30.5/549{,}804/topic changes with author, -0.4/Medium/4.4/1{,}299{,}324/topic controlled, -1.5/Hard/20.9/589{,}946/topic controlled}{
+    \node[anchor=east,font=\footnotesize\bfseries,text=ujpurple] at (0.8,\y) {\name};
+    \fill[ujpurple!25,rounded corners=2pt] (1,\y-0.22) rectangle (9,\y+0.22);
+    \fill[ujorange,rounded corners=2pt] (1,\y-0.22) rectangle ({1+8*\sw/100},\y+0.22);
+    \node[anchor=west,font=\scriptsize,text=white,inner sep=3pt] at (1,\y) {\sw\%};
+    \node[anchor=west,font=\tiny,text=gray] at (9.15,\y+0.08) {\n\ pairs};
+    \node[anchor=west,font=\tiny,text=ujorange!80!black] at (9.15,\y-0.2) {\tag};
+  }
+  \node[sbox,fill=ujorange,text=white,minimum width=1.4cm,minimum height=0.45cm,font=\tiny] at (2.0,-2.4) {switch};
+  \node[sbox,fill=ujpurple!25,minimum width=1.4cm,minimum height=0.45cm,font=\tiny] at (3.6,-2.4) {same author};
+\end{tikzpicture}
 \end{frame}
 
 \begin{frame}{Pipeline: from raw text to a prediction}
 \centering
-\begin{tikzpicture}[
-  box/.style={draw=ujpurple,fill=ujorange!12,rounded corners=4pt,minimum height=0.85cm,minimum width=2.45cm,align=center,font=\footnotesize},
-  arr/.style={-{Stealth},thick,color=ujorange}, node distance=0.5cm]
-\node[box] (a) {Sentence pair\\$(S_i,S_{i+1})$};
-\node[box,right=of a] (b) {Sentence features\\9 scalars + 256 hashed\\trigram buckets};
-\node[box,right=of b] (c) {Standardise\\(training stats)};
-\node[box,right=of c] (d) {Pair vector $p_i$ (11 values):\\9 $|\Delta z|$ + trigram cosine\\+ overall distance $d_i$};
-\node[box,below=0.8cm of b] (e) {Classifier\\tree / logistic / NN};
-\node[box,right=of e] (f) {Threshold\\(tuned on validation)};
-\node[box,right=of f,fill=ujpurple!12] (g) {Prediction};
-\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d);
-\draw[arr] (d.south) -- ++(0,-0.4) -| ($(e.north)+(0.0,0.0)$) ;
-\draw[arr] (e)--(f); \draw[arr] (f)--(g);
+\begin{tikzpicture}[node distance=0.36cm]
+  \node[stage] (a) {Sentence\\pair};
+  \node[stage,right=of a] (b) {Style\\features};
+  \node[stage,right=of b] (c) {Standardise};
+  \node[stage,right=of c,fill=ujyellow!25] (d) {Pair\\vector};
+  \node[stage,right=of d] (e) {Classifier};
+  \node[stage,right=of e] (f) {Threshold};
+  \node[stage,right=of f,fill=ujpurple,text=white,draw=ujpurple] (g) {0\,/\,1};
+  \foreach \s/\t in {a/b,b/c,c/d,d/e,e/f,f/g}{\draw[arr] (\s) -- (\t);}
+  % step numbers
+  \foreach \n/\k in {a/1,b/2,c/3,d/4,e/5,f/6,g/7}{
+    \node[circle,fill=ujorange,text=white,font=\tiny\bfseries,minimum size=0.42cm,inner sep=0] at ($(\n.north west)+(0.05,0.0)$) {\k};
+  }
+  % small captions
+  \node[font=\tiny,text=gray,below=2pt of a,align=center] {$(S_i,S_{i+1})$};
+  \node[font=\tiny,text=gray,below=2pt of b,align=center] {14 scalars\\+256 trigram\\buckets};
+  \node[font=\tiny,text=gray,below=2pt of c,align=center] {training\\statistics};
+  \node[font=\tiny,text=gray,below=2pt of e,align=center] {tree\\logistic\\neural net};
+  \node[font=\tiny,text=gray,below=2pt of f,align=center] {tuned on\\validation};
+  % groups
+  \begin{scope}[on background layer]
+    \node[fit=(b)(c)(d),inner xsep=5pt,inner ysep=9pt,yshift=-4pt,fill=ujorange!9,rounded corners=6pt,label={[font=\tiny,text=ujorange!80!black,yshift=-3pt]above:Feature extraction (Java, no ML library)}] {};
+    \node[fit=(e)(f)(g),inner xsep=5pt,inner ysep=9pt,yshift=-4pt,fill=ujpurple!8,rounded corners=6pt,label={[font=\tiny,text=ujpurple,yshift=-3pt]above:Classification}] {};
+  \end{scope}
+  % what the pair vector looks like
+  \begin{scope}[shift={(2.2,-3.25)}]
+    \pairstrip{0.3}
+    \node[font=\tiny,text=gray,anchor=west] at (0,-0.25) {14 $|\Delta z|$, cosine, distance, 256 buckets};
+    \draw[gray!60,dashed] (d.south) -- ++(0,-0.15) -- (3.0,0.45);
+  \end{scope}
 \end{tikzpicture}
-\medskip
-
-\begin{itemize}\itemsep0.3em
-\item Written in Java with \emph{no external ML library}
-\end{itemize}
 \end{frame}
 
-\begin{frame}{Style features(1/2)}
-\centering\small
-\begin{tabular}{cp{4.6cm}p{6.2cm}}
-\toprule
-\textbf{Idx} & \textbf{Feature} & \textbf{What it captures about the author}\\
-\midrule
-0 & Word count ($\log(1+\#\text{words})$) & Preference for short or long sentences\\[0.5em]
-1 & Character count (log scaled) & Sentence length again, but also sensitive to word choice\\[0.5em]
-2 & Frequent word ratio (top 10k English) & Share of common words versus rarer words\\[0.5em]
-3 & Punctuation density & How heavily the author punctuates\\[0.5em]
-4 & Digit ratio & Writing numbers and dates as digits\\
-\bottomrule
-\end{tabular}
-\medskip
+\begin{frame}{Features: what the classifier sees}
+\centering
+\begin{tikzpicture}
+  \foreach \i/\h/\c/\items in {0/Length/famL/{words\\characters\\word length}, 1/Orthography/famO/{punctuation\\digits\\uppercase\\punct. variety$^{\star}$}, 2/Vocabulary/famV/{frequent words\\TF-IDF\\emotion (NRC)\\type-token$^{\star}$}, 3/Readability/famR/{Flesch ease$^{\star}$\\Gunning Fog$^{\star}$\\Flesch-Kincaid$^{\star}$}}{
+    \node[card,minimum width=2.45cm,minimum height=2.45cm,anchor=north west] at ({\i*2.6},0) {};
+    \fill[\c,rounded corners=3pt] ({\i*2.6+0.03},-0.03) rectangle ++(2.39,-0.5);
+    \node[font=\scriptsize\bfseries,text=white] at ({\i*2.6+1.22},-0.28) {\h};
+    \node[font=\scriptsize,align=center,text=ujpurple!80!black] at ({\i*2.6+1.22},-1.5) {\items};
+  }
+  \node[font=\tiny,text=gray,anchor=west] at (0,-2.75) {14 scalar features, z-scored with training statistics\quad $^{\star}$ added, more robust to topic};
 
-\raggedright\footnotesize Scalar features are z-scored with training statistics.
+  % character trigram card
+  \node[card,fill=ujorange!8,draw=ujorange,minimum width=3.3cm,minimum height=2.45cm,anchor=north west] at (10.55,0) {};
+  \node[font=\scriptsize\bfseries,text=ujorange!80!black] at (12.2,-0.3) {Character trigrams};
+  \foreach \k in {0,...,9}{\fill[ujorange!\ifodd\k 90\else 55\fi] ({10.85+\k*0.28},-0.75) rectangle ++(0.24,0.35);}
+  \node[font=\tiny,text=gray] at (12.2,-1.05) {hashed into 256 buckets};
+  \node[font=\tiny,text=ujpurple,align=center] at (12.2,-1.7) {cosine similarity\\+ 256 bucket differences};
+  \node[font=\tiny,text=ujorange!80!black] at (12.2,-2.2) {restored};
+
+  % pair vector
+  \node[font=\scriptsize\bfseries,text=ujpurple,anchor=west] at (0,-3.35) {Pair vector};
+  \begin{scope}[shift={(1.9,-3.5)}]
+    \pairstrip{0.3}
+    \node[font=\tiny,text=gray,anchor=west] at (0,-0.25) {$14\,|\Delta z|$\ $+$ cosine $+$ distance\ $+$\ 256 bucket differences\ $=$\ \textbf{272 values}};
+  \end{scope}
+\end{tikzpicture}
 \end{frame}
 
-\begin{frame}{Style features (2/2)}
-\centering\small
-\begin{tabular}{cp{4.6cm}p{6.2cm}}
-\toprule
-\textbf{Idx} & \textbf{Feature} & \textbf{What it captures about the author}\\
-\midrule
-5 & Uppercase ratio & Capitalisation habit: acronyms, emphasis, names\\[0.4em]
-6 & Average word length & Preference for short or long words\\[0.4em]
-7 & Mean TF-IDF & How rare the words are compared with the training text\\[0.4em]
-8 & Emotion score (NRC lexicon) & Emotional wording per word\\
-\midrule
-\multicolumn{3}{l}{\textcolor{ujorange}{\textbf{Not used during training}}}\\[0.2em]
--- & Type-token ratio & Word variety versus repetition within a sentence\\[0.4em]
--- & Punctuation variety & Range of different punctuation marks used\\
-\bottomrule
-\end{tabular}
-\end{frame}
 
-\begin{frame}{Hashed character trigrams and the pair vector}
-\begin{columns}[T]
-\begin{column}{0.52\textwidth}
-\textbf{Hashing trick}
-\begin{itemize}\itemsep0.3em
-\item Each trigram $\rightarrow$ one of $B=256$ buckets
-\item Advantage: fixed length, no corpus required
-\item Cost: there are collisions, and the buckets mean nothing to us
-\end{itemize}
-\end{column}
-\begin{column}{0.48\textwidth}
-\textbf{Pair feature vector: compressed version (11 values)}
-\begin{itemize}\itemsep0.3em
-\item 9 absolute differences $|z_i^{(k)}-z_{i+1}^{(k)}|$
-\item Trigram cosine (kept readable)
-\item Overall distance $d_i$
-\end{itemize}
-\end{column}
-\end{columns}
-\end{frame}
+
+
 
 %% ---------------- (2) Models ----------------
 \section[Models]{Models Overview}
-\begin{frame}{Models overview}
-\small
-\begin{tabular}{p{3cm}p{9cm}}
-\toprule
-\textbf{Model} & \textbf{Setup}\\
-\midrule
-Decision tree & Gini, depth 5, min 20 to split, 5 per leaf, class weighted, threshold 0.5\\[0.6em]
-Logistic regression & Batch gradient descent, 10,000 iterations, lr 0.6, class weighted\\[0.6em]
-Neural network & 11--128--64--32--16--8--1, ReLU, mini batch SGD (lr 0.001, batch 64), L2 0.01, dropout 0.2, early stopping\\
-\bottomrule
-\end{tabular}
+\begin{frame}{Three classifiers, one pair vector}
+\centering
+\begin{tikzpicture}
+  \node[stage,minimum height=3.6cm,minimum width=1.7cm,fill=ujyellow!25] (pv) at (0,0) {Pair\\vector\\[2pt]{\tiny 272 values}};
+  \foreach \y/\id/\name/\sub/\g in {1.9/a/Decision tree/if--then rules/\treeglyph, 0/b/Logistic regression/weighted sum/\sigglyph, -1.9/c/Neural network/stacked layers/\netglyph}{
+    \node[draw=ujpurple!55,fill=white,rounded corners=6pt,minimum width=6.2cm,minimum height=1.45cm,line width=0.8pt] (m\id) at (5.9,\y) {};
+    \node[minimum width=2.1cm] at (3.95,\y) {\g};
+    \node[anchor=west,align=left,font=\small\bfseries] at (5.2,\y+0.18) {\name};
+    \node[anchor=west,font=\scriptsize,text=gray] at (5.2,\y-0.32) {\sub};
+    \draw[arr] (pv.east |- 0,\y) -- (m\id.west) ;
+  }
+  \node[stage,minimum height=3.6cm,minimum width=1.5cm] (th) at (10.7,0) {Threshold};
+  \node[stage,fill=ujpurple,text=white,draw=ujpurple,minimum width=1.1cm] (out) at (12.9,0) {0\,/\,1};
+  \foreach \id in {a,b,c}{\draw[arr] (m\id.east) -- (th.west |- m\id.east);}
+  \draw[arr] (th) -- (out);
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}{Model 1: Decision tree}
+\centering
+\begin{tikzpicture}[level distance=1.45cm,
+  level 1/.style={sibling distance=6.6cm}, level 2/.style={sibling distance=3.1cm}, edge from parent/.style={draw=ujpurple!60,thick}]
+  \node[split] {$|\Delta$ character length$|\ \le t_1$\,?}
+    child { node[split] {$|\Delta$ word length$|\ \le t_2$\,?}
+      child { node[leaf0] {same} edge from parent node[above left,font=\tiny,text=gray] {yes} }
+      child { node[leaf1] {switch} edge from parent node[above right,font=\tiny,text=gray] {no} } }
+    child { node[split] {trigram cosine $\le t_3$\,?}
+      child { node[leaf1] {switch} edge from parent node[above left,font=\tiny,text=gray] {yes} }
+      child { node[leaf0] {same} edge from parent node[above right,font=\tiny,text=gray] {no} } };
+\end{tikzpicture}
+
+\medskip
+\chip{criterion}{Gini}\ \chip{max depth}{5}\ \chip{min leaf}{5}\ \chip{class weighted}{yes}\ \chip{threshold}{0.5}
+
+\medskip
+{\small Every prediction is a short, readable chain of rules.}
+\end{frame}
+
+\begin{frame}{Model 2: Logistic regression}
+\centering
+\begin{tikzpicture}
+  % inputs: line thickness = learned weight
+  \foreach \id/\y/\lab/\t in {1/1.6/{$|\Delta$ char length$|$}/1.6, 2/0.8/{$|\Delta$ word length$|$}/0.5, 4/-0.8/{trigram cosine}/2.8, 5/-1.6/{overall distance}/1.2}{
+    \node[anchor=east,font=\scriptsize] at (0,\y) {\lab};
+    \node[circle,fill=ujpurple!70,inner sep=2pt] (x\id) at (0.25,\y) {};
+    \draw[ujorange,line width=\t pt] (x\id) -- (4.1,0);
+  }
+  \node[font=\small,text=gray] at (0.25,0) {$\vdots$};
+  \node[font=\tiny,fill=white,inner sep=1pt] at ($(x1)!0.4!(4.1,0)$) {+0.99};
+  \node[font=\tiny,fill=white,inner sep=1pt] at ($(x4)!0.4!(4.1,0)$) {$-4.71$};
+  \node[font=\tiny,fill=white,inner sep=1pt] at ($(x5)!0.4!(4.1,0)$) {+0.72};
+  \node[circle,draw=ujpurple,fill=ujpurple!8,minimum size=0.9cm,font=\large] (sum) at (4.1,0) {$\Sigma$};
+  \draw[arr] (sum) -- (5.5,0);
+  % sigmoid
+  \begin{scope}[shift={(5.7,-0.8)}]
+    \draw[gray] (-0.1,0)--(3.2,0) (0,-0.1)--(0,1.8);
+    \draw[ujorange,very thick,smooth,domain=0.1:3.1,samples=40,variable=\x] plot (\x,{1.6/(1+exp(-2.1*(\x-1.6)))});
+    \draw[ujpurple,dashed] (0,1.088) -- (3.2,1.088);
+    \node[font=\tiny,text=ujpurple,anchor=south west] at (0.05,1.1) {threshold 0.68};
+    \node[font=\tiny,text=gray,anchor=north] at (1.6,-0.05) {weighted sum};
+    \node[font=\tiny,text=gray,anchor=east,rotate=90,yshift=3pt] at (-0.05,1.6) {P(switch)};
+  \end{scope}
+  \draw[arr] (9.0,0) -- (9.8,0);
+  \node[stage,fill=ujpurple,text=white,draw=ujpurple,minimum width=1.2cm] at (10.5,0) {0\,/\,1};
+\end{tikzpicture}
+
+\medskip
+\chip{optimiser}{batch gradient descent}\ \chip{learning rate}{0.6}\ \chip{iterations}{10,000}\ \chip{class weighted}{yes}
+
+\medskip
+{\small Line thickness = learned weight. The trigram cosine dominates.}
+\end{frame}
+
+\begin{frame}{Model 3: Neural network}
+\centering
+\begin{tikzpicture}[x=1.95cm]
+  \def\sizes{11,128,64,32,16,8,1}
+  % draw up to 5 neurons per layer
+  \foreach \x/\n/\shown/\lab in {0/11/5/11, 1/128/5/128, 2/64/5/64, 3/32/4/32, 4/16/4/16, 5/8/3/8, 6/1/1/1}{
+    \foreach \i in {1,...,\shown}{
+      \coordinate (n\x-\i) at (\x,{(\i-(\shown+1)/2)*0.62});
+    }
+    \node[font=\scriptsize\bfseries,text=ujpurple] at (\x,-1.85) {\lab};
+  }
+  % connections
+  \foreach \x/\y/\sa/\sb in {0/1/5/5, 1/2/5/5, 2/3/5/4, 3/4/4/4, 4/5/4/3, 5/6/3/1}{
+    \foreach \i in {1,...,\sa}{\foreach \j in {1,...,\sb}{\draw[ujpurple!20] (n\x-\i) -- (n\y-\j);}}
+  }
+  % neurons
+  \foreach \x/\shown/\c in {0/5/ujpurple!75, 1/5/ujorange, 2/5/ujorange, 3/4/ujorange, 4/4/ujorange, 5/3/ujorange, 6/1/ujpurple}{
+    \foreach \i in {1,...,\shown}{\fill[\c] (n\x-\i) circle (0.13);}
+  }
+  \foreach \x in {0,1,2}{\node[font=\small,text=gray] at (\x,0.0) {\raisebox{-0.5ex}{$\vdots$}};}
+  \node[font=\tiny,text=gray] at (0,1.62) {input};
+  \node[font=\tiny,text=ujorange!80!black] at (3,1.62) {hidden layers (ReLU)};
+  \node[font=\tiny,text=gray] at (6,1.62) {sigmoid};
+  \draw[ujorange!60,decorate,decoration={brace,amplitude=4pt}] (0.85,1.45) -- (5.15,1.45);
+\end{tikzpicture}
+
+\medskip
+\chip{training}{mini-batch SGD}\ \chip{learning rate}{0.001}\ \chip{dropout}{0.2}\ \chip{L2}{0.01}\ \chip{early stopping}{yes}
+
+\medskip
+{\small Most flexible model, yet not better than the linear one (next slides).}
 \end{frame}
 
 %% ---------------- (3) Results ----------------
 \section[Results]{Results and Interpretation}
 \begin{frame}{Results: overall held out test (259,653 pairs)}
 \centering\small
+\renewcommand{\arraystretch}{1.35}
 \begin{tabular}{lccccc}
 \toprule
 \textbf{Model} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Rec.} & \textbf{F1} & \textbf{Bal.\ Acc.}\\
 \midrule
 Decision tree & 0.850 & 0.462 & \textbf{0.410} & 0.435 & 0.666\\
-Logistic regression & 0.869 & 0.546 & 0.392 & \textbf{0.456} & \textbf{0.669}\\
+Logistic regression & 0.869 & 0.546 & 0.392 & \cellcolor{ujorange!20}\textbf{0.456} & \textbf{0.669}\\
 Neural network & \textbf{0.871} & \textbf{0.562} & 0.368 & 0.445 & 0.661\\
 \bottomrule
 \end{tabular}
-\bigskip
+\bigskip\bigskip
 
-\raggedright
-\begin{itemize}\itemsep0.4em
-\item The three models are nearly tied (the neural network is not better than the linear model)
-\item The majority baseline already scores \textbf{0.859} accuracy, so accuracy alone is barely informative
-\end{itemize}
+\chip{majority baseline accuracy}{0.859}\quad\chip{best F1}{logistic regression}\quad\chip{models}{nearly tied}\\[6pt]\chip{first run}{9 style features, 11-value pair vector}
 \end{frame}
 
-\begin{frame}{Results by difficulty (1/2): easy}
-\centering\small
-F1 / balanced accuracy on the held out test split\\[0.5em]
-\begin{tabular}{lc}
-\toprule
-\textbf{Model} & \textbf{Easy}\\
-\midrule
-Decision tree & 0.872 / 0.897\\
-Logistic regression & 0.869 / 0.890\\
-Neural network & 0.848 / 0.873\\
-\bottomrule
-\end{tabular}
-\bigskip
-
-\raggedright
-\begin{itemize}\itemsep0.4em
-\item \textbf{Easy:} strong, but author changes coincide with topic changes
-\end{itemize}
+\begin{frame}{Results by difficulty (F1)}
+\centering
+\begin{tikzpicture}[x=1cm,y=3.6cm]
+  \draw[gray!50] (0,0) -- (10.6,0);
+  \foreach \v in {0.25,0.5,0.75,1.0}{\draw[gray!20] (0,\v) -- (10.6,\v); \node[font=\tiny,text=gray,anchor=east] at (-0.05,\v) {\v};}
+  \foreach \g/\name in {0/Easy,1/Medium,2/Hard}{\node[font=\footnotesize\bfseries,text=ujpurple] at ({1.6+\g*3.6},-0.08) {\name};}
+  \foreach \g/\m/\v/\c in {0/0/0.872/ujpurple!60, 0/1/0.869/ujorange, 0/2/0.848/ujyellow,
+                           1/0/0.067/ujpurple!60, 1/1/0.078/ujorange, 1/2/0.058/ujyellow,
+                           2/0/0.057/ujpurple!60, 2/1/0.040/ujorange, 2/2/0.027/ujyellow}{
+    \fill[\c,rounded corners=1.5pt] ({0.55+\g*3.6+\m*1.05},0) rectangle ++(0.9,\v);
+    \node[font=\tiny,anchor=south] at ({1.0+\g*3.6+\m*1.05},\v) {\v};
+  }
+  \node[font=\tiny,text=gray,align=center] at (6.1,0.3) {balanced accuracy $\approx 0.50$\\(chance)};
+  \foreach \x/\n/\c in {1.2/Decision tree/ujpurple!60, 4.2/Logistic regression/ujorange, 7.9/Neural network/ujyellow}{
+    \fill[\c] (\x,-0.2) rectangle ++(0.25,0.05); \node[font=\tiny,anchor=west] at (\x+0.3,-0.175) {\n};
+  }
+\end{tikzpicture}
 \end{frame}
 
-\begin{frame}{Results by difficulty (2/2): medium and hard}
-\centering\small
-F1 / balanced accuracy on the held out test split\\[0.5em]
-\begin{tabular}{lcc}
-\toprule
-\textbf{Model} & \textbf{Medium} & \textbf{Hard}\\
-\midrule
-Decision tree & 0.067 / 0.503 & 0.057 / 0.502\\
-Logistic regression & 0.078 / 0.515 & 0.040 / 0.503\\
-Neural network & 0.058 / 0.503 & 0.027 / 0.499\\
-\bottomrule
-\end{tabular}
-\bigskip
 
-\raggedright
-\begin{itemize}\itemsep0.4em
-\item \textbf{Medium/hard:} balanced accuracy $\approx 0.50$, i.e.\ chance
-\end{itemize}
-\end{frame}
 
-\begin{frame}{Interpretation: what the models actually used}
+\begin{frame}{Interpretation: what the models used}
 \begin{columns}[T]
-\begin{column}{0.5\textwidth}
-\textbf{Decision tree}
-\begin{itemize}\itemsep0.3em
-\item Root: character length difference (idx 1)
-\item Then average word length difference (idx 6)
-\item Trigram cosine appears at nearly every level
-\item Only 5 of 11 features used at all
-\end{itemize}
+\begin{column}{0.48\textwidth}
+\centering\textbf{\small Decision tree: splits used}\\[4pt]
+\begin{tikzpicture}
+  \foreach \i/\t in {1/Root: char length $\Delta$, 2/Then: word length $\Delta$, 3/Trigram cosine (almost every level)}{
+    \node[card,anchor=west,minimum width=5.6cm,minimum height=0.7cm,font=\scriptsize,align=left] at (0.35,{-\i*0.9}) {\hspace{0.45cm}\t};
+    \node[num] at (0.35,{-\i*0.9}) {\i};
+  }
+  \node[font=\scriptsize,text=gray] at (3.0,-3.4) {only \textbf{5 of 11} features used};
+\end{tikzpicture}
 \end{column}
-\begin{column}{0.5\textwidth}
-\textbf{Logistic regression weights}
-\begin{itemize}\itemsep0.3em
-\item Trigram cosine: $-4.71$ (more similar $\Rightarrow$ fewer switches)
-\item Character length difference: $+0.99$
-\item Overall distance: $+0.72$
-\item Frequent word and punctuation differences $\approx 0$
-\end{itemize}
+\begin{column}{0.52\textwidth}
+\centering\textbf{\small Logistic regression: weights}\\[4pt]
+\begin{tikzpicture}[x=0.75cm]
+  \draw[gray] (0,0.3) -- (0,-3.2);
+  \foreach \y/\n/\w in {-0.4/Trigram cosine/-4.71, -1.2/Char length $\Delta$/0.99, -2.0/Overall distance/0.72, -2.8/Frequent word $\Delta$/0.0}{
+    \ifdim \w pt<0pt
+      \fill[ujpurple!70] (\w,\y-0.2) rectangle (0,\y+0.2); \node[font=\tiny,anchor=east] at (\w-0.05,\y) {\w};
+      \node[font=\tiny,anchor=west] at (0.1,\y) {\n};
+    \else
+      \fill[ujorange] (0,\y-0.2) rectangle (\w,\y+0.2); \node[font=\tiny,anchor=west] at (\w+0.05,\y) {+\w};
+      \node[font=\tiny,anchor=east] at (-0.1,\y) {\n};
+    \fi
+  }
+\end{tikzpicture}
 \end{column}
 \end{columns}
 \bigskip
-\begin{block}{}
-The nine scalars are mostly surface statistics.
-\end{block}
+\centering\chip{reading}{mostly surface statistics}\ \chip{model}{first run, 11 features}
+\end{frame}
+
+%% ---------------- Ablation ----------------
+\section[Ablation]{Automated Ablation Study}
+\begin{frame}{Ablation study: automated}
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm]
+  % --- features lane
+  \node[anchor=west,font=\scriptsize\bfseries,text=ujpurple] at (0,2.95) {FEATURES};
+  \foreach \i in {0,...,12}{\fill[ujorange!\ifodd\i 90\else 60\fi] ({\i*0.42},2.1) rectangle ++(0.38,0.5);}
+  \node[font=\tiny,text=gray,anchor=west] at (0,1.85) {all 13 feature groups};
+  \draw[arr] (5.6,2.35) -- (6.5,2.35);
+  \node[stage,minimum width=2.2cm,anchor=west] at (6.5,2.35) {train $\to$ F1$_{\text{all}}$};
+
+  \foreach \i in {0,...,12}{\fill[ujorange!\ifodd\i 90\else 60\fi] ({\i*0.42},0.9) rectangle ++(0.38,0.5);}
+  \fill[white] (1.68,0.9) rectangle ++(0.38,0.5);
+  \draw[ujpurple,dashed] (1.68,0.9) rectangle ++(0.38,0.5);
+  \draw[ujpurple,thick] (1.72,0.94) -- ++(0.3,0.42) (1.72,1.36) -- ++(0.3,-0.42);
+  \node[font=\tiny,text=gray,anchor=west] at (0,0.65) {drop one group $G$};
+  \draw[arr] (5.6,1.15) -- (6.5,1.15);
+  \node[stage,minimum width=2.2cm,anchor=west] at (6.5,1.15) {retrain $\to$ F1$_{-G}$};
+  \draw[ujpurple!60,-{Stealth},rounded corners=4pt] (8.7,0.55) -- (8.7,0.1) -- (-0.25,0.1) -- (-0.25,0.9);
+  \node[font=\tiny,text=gray] at (4,-0.1) {repeat for every group and every model};
+
+  % --- importance formula
+  \node[draw=ujorange,fill=ujorange!8,rounded corners=6pt,inner sep=7pt,align=center] at (11.7,1.75) {\scriptsize Importance$(G)$\\[3pt]\normalsize F1$_{\text{all}}-$F1$_{-G}$};
+
+  % --- parameters lane
+  \node[anchor=west,font=\scriptsize\bfseries,text=ujpurple] at (0,-0.85) {PARAMETERS};
+  \foreach \k/\p/\lab in {0/0.65/depth, 2.2/0.2/learning rate, 4.4/0.8/dropout}{
+    \draw[gray!60,line width=2pt,line cap=round] (\k,-1.55) -- ++(1.5,0);
+    \fill[ujorange] (\k+\p*1.5,-1.55) circle (0.12);
+    \node[font=\tiny,text=gray,anchor=north] at (\k+0.75,-1.7) {\lab};
+  }
+  \node[font=\scriptsize,text=ujpurple] at (7.7,-1.2) {one at a time};
+  \draw[arr] (6.4,-1.55) -- (9.0,-1.55);
+  \node[stage,minimum width=1.9cm] at (10.2,-1.55) {$\Delta$ F1};
+\end{tikzpicture}
+
+\medskip
+\chip{models}{3}\ \chip{feature groups}{13}\ \chip{parameter sweeps}{15}\ \chip{output}{CSV, Markdown, \LaTeX}
+\end{frame}
+
+\begin{frame}{Ablation: which feature groups matter?}
+\centering
+\adjustbox{max totalsize={0.97\textwidth}{5.1cm},center}{\AblationFeatureFigure}
+
+\medskip
+\chip{runs}{1 seed, held out test split}\ \chip{features}{16-value pair vector}
+\end{frame}
+
+\begin{frame}{Ablation: which parameters matter?}
+\centering
+\adjustbox{max totalsize={0.97\textwidth}{5.1cm},center}{\AblationParamFigure}
+
+\medskip
+\chip{status}{partial: neural network parameter sweeps still running}
 \end{frame}
 
 %% ---------------- Imbalance ----------------
 \section[Imbalance]{Handling Class Imbalance}
 \begin{frame}{Handling class imbalance}
-Only 14.3\% of pairs are switches, so ``always same author'' looks accurate.
-\bigskip
+\centering
+\begin{tikzpicture}
+  \fill[ujpurple!25,rounded corners=3pt] (0,0) rectangle (11,0.55);
+  \fill[ujorange,rounded corners=3pt] (0,0) rectangle (1.573,0.55);
+  \node[font=\scriptsize,text=white] at (0.8,0.275) {14.3\%};
+  \node[font=\scriptsize,text=ujpurple] at (6.3,0.275) {85.7\% same author};
+  \node[font=\tiny,text=gray] at (5.5,-0.3) {``always same author'' already looks accurate};
+  \foreach \i/\h/\t in {0/1. Class weights/same 0.583\quad switch 3.505, 1/2. Tuned threshold/maximises F1\\on validation, 2/3. Fair metrics/balanced accuracy{,} F1{,}\\majority baseline}{
+    \node[card,minimum width=3.4cm,minimum height=1.7cm] at ({1.8+\i*3.7},-1.9) {};
+    \node[font=\footnotesize\bfseries,text=ujpurple] at ({1.8+\i*3.7},-1.45) {\h};
+    \node[font=\scriptsize,text=gray,align=center] at ({1.8+\i*3.7},-2.15) {\t};
+  }
+\end{tikzpicture}
 
-\begin{columns}[T]
-\begin{column}{0.32\textwidth}
-\begin{block}{1. Class weights}
-\centering Same author \textbf{0.583}\\ Switch \textbf{3.505}
-\end{block}
-\end{column}
-\begin{column}{0.32\textwidth}
-\begin{block}{2. Tuned threshold}
-\centering Chosen on validation to maximise F1
-\end{block}
-\end{column}
-\begin{column}{0.32\textwidth}
-\begin{block}{3. Fair metrics}
-\centering Balanced accuracy, F1 and majority baseline
-\end{block}
-\end{column}
-\end{columns}
-\bigskip
-
-\begin{itemize}
-\item No resampling: all 2.4M pairs are kept
-\end{itemize}
+\medskip
+\chip{resampling}{none, all 2.4M pairs kept}
 \end{frame}
 
 %% ---------------- (4) Still working on ----------------
 \section[Future]{Future Work}
-\begin{frame}{What I am still working on (Future Work)}
-\begin{itemize}\itemsep0.7em
-\item \textbf{Feature ablation and importance}
-\item \textbf{Restoring n-gram compressed information}
-\item \textbf{Topic robust features:} such as POS tagging usage, readability, vocabulary richness
-\item \textbf{Stronger models:} such as random forest, gradient boosting
-\end{itemize}
+\begin{frame}{Future work}
+\centering
+\begin{tikzpicture}
+  \foreach \i/\h/\t in {0/Retrain and re-evaluate/new 14-feature set\\with trigram buckets, 1/POS features/tagger not yet\\implemented, 2/Stronger models/random forest{,}\\gradient boosting}{
+    \node[card,minimum width=3.9cm,minimum height=2.6cm] at ({\i*4.2},0) {};
+    \node[num,minimum size=0.65cm,font=\small\bfseries] at ({\i*4.2},0.75) {\the\numexpr\i+1\relax};
+    \node[font=\footnotesize\bfseries,text=ujpurple] at ({\i*4.2},0.0) {\h};
+    \node[font=\scriptsize,text=gray,align=center] at ({\i*4.2},-0.75) {\t};
+  }
+\end{tikzpicture}
 \end{frame}
 
 %% ---------------- Conclusion ----------------
 \section[Conclusion]{Conclusion}
 \begin{frame}{Summary}
-\begin{itemize}\itemsep0.7em
-\item Author Switch Detection system: 9 features + hashed trigram profile and distance; 11-value pair feature vector
-\item The results are baseline F1 (0.435--0.456)
-\end{itemize}
+\centering
+\begin{tikzpicture}
+  \foreach \i/\big/\t in {0/272/pair features:\\14 styles + cosine +\\distance + 256 buckets, 1/{0.44--0.46}/baseline F1\\of the three models, 2/{3 + 1}/classifiers and an\\automated ablation\\study}{
+    \node[card,minimum width=3.9cm,minimum height=2.8cm] at ({\i*4.2},0) {};
+    \node[font=\LARGE\bfseries,text=ujorange] at ({\i*4.2},0.55) {\big};
+    \node[font=\scriptsize,text=gray,align=center] at ({\i*4.2},-0.65) {\t};
+  }
+\end{tikzpicture}
 \end{frame}
 
 %% ---------------- Questions ----------------
