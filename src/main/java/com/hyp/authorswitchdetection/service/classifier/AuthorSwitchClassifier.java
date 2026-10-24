@@ -47,10 +47,10 @@ public interface AuthorSwitchClassifier {
     }
 
     /**
-     * The difficulty level of this document, detected from its text, and the threshold of that level (models.LevelRouter).
+     * The difficulty level of this document, detected from its text, and the threshold of that level (routing.LevelRouter).
      * null = not available (no detector or no thresholds per level): the single threshold() is used.
      */
-    default models.LevelRouter.Decision decideThreshold(List<String> sentences) { return null; }
+    default routing.LevelRouter.Decision decideThreshold(List<String> sentences) { return null; }
 
     /** Why decideThreshold gives null (empty = no reason to show). */
     default String levelRouterProblem() { return ""; }

@@ -10,43 +10,50 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * To properly train the POS Tagger can take a long time and needs alot of data
- * not just the current one.
- * For this reason, we will use the Stanford CoreNLP library to perform POS
- * tagging. The Stanford CoreNLP
- * library is a Java-based natural language processing library that provides
- * various NLP tools, including POS tagging.
+ * Stanford CoreNLP implementation of {@link PosTagger}.
  *
- * This is the CoreNLP backed implementation of PosTagger (the built in one is
- * HeuristicPosTagger). It is used with -Dpos.tagger=corenlp, and it is only
- * created by name (see PosTagger.create), so the command line scripts compile and run
- * without the CoreNLP jars as long as the heuristic tagger is used.
+ * <p>Training a custom POS tagger from scratch requires significant data and compute time.
+ * This class leverages the Stanford CoreNLP pipeline for robust, pre-trained POS tagging.
+ * It serves as an alternative to the built-in {@code HeuristicPosTagger}.</p>
  *
- * Changes to the first version of this file:
- * - the missing import of CoreAnnotations is added (the file did not compile)
- * - it returns the COARSE tags of PosTagset (no more int[36] count array that was shared by
- * all the sentences and kept adding up between calls)
- * - the tokens are given to CoreNLP as they are (whitespace tokenisation), so the tags line up
- * one to one with the tokens the features count
+ * <p><strong>Usage:</strong> Enabled via system property {@code -Dpos.tagger=corenlp}.
+ * Instantiated dynamically by name (via {@code PosTagger.create}), allowing command-line
+ * scripts to compile and run without requiring CoreNLP JARs unless explicitly selected.</p>
  *
- * NOT TESTED in the environment this change was written in (no access to Maven Central).
- * Check it once with: java -cp ... features.POSTagger "The cat sat on the mat ."
+ * <p><strong>Key Design Details:</strong>
+ * <ul>
+ *   <li>Uses whitespace tokenization to preserve input token boundaries 1:1.</li>
+ *   <li>Maps Penn Treebank tags to coarse {@code PosTagset} categories.</li>
+ *   <li>Returns a per-sentence tag array to prevent state accumulation across calls.</li>
+ * </ul>
+ * </p>
  */
 public class POSTagger implements PosTagger {
 
     private final StanfordCoreNLP pipeline;
 
+    /**
+     * Initializes the Stanford CoreNLP pipeline configured strictly for POS tagging.
+     */
     public POSTagger() {
-        // Set up the Stanford CoreNLP pipeline with the POS tagger
         Properties props = new Properties();
         props.setProperty("annotators", "tokenize,ssplit,pos");
-        // the tokens are already split by TextUtils.tokenizeWithPunctuation
+
+        // Tokens are pre-split by TextUtils.tokenizeWithPunctuation; enforce whitespace splitting
         props.setProperty("tokenize.whitespace", "true");
-        // one input = one sentence, never split it again
+
+        // Treat input as a single complete sentence to prevent secondary sentence splitting
         props.setProperty("ssplit.isOneSentence", "true");
+
         this.pipeline = new StanfordCoreNLP(props);
     }
 
+    /**
+     * Tags a sequence of input tokens with coarse POS tag IDs.
+     *
+     * @param tokens List of token strings to tag.
+     * @return Array of integer tag representations corresponding 1:1 with input tokens.
+     */
     @Override
     public int[] tag(List<String> tokens) {
 
@@ -57,7 +64,7 @@ public class POSTagger implements PosTagger {
             return tags;
         }
 
-        // Create an Annotation object with the input text, and annotate it using the pipeline
+        // Annotate token stream via Stanford CoreNLP pipeline
         Annotation document = new Annotation(String.join(" ", tokens));
         pipeline.annotate(document);
 
@@ -75,9 +82,15 @@ public class POSTagger implements PosTagger {
         return tags;
     }
 
-    /** Quick check: java features.POSTagger "The cat sat on the mat ." */
+    /**
+     * Entry point for quick manual testing.
+     * <p>Execution: {@code java -cp <classpath> features.POSTagger "The cat sat on the mat ."}</p>
+     *
+     * @param args Optional command line text arguments to tag.
+     */
     public static void main(String[] args) {
 
+        System.out.println("The cat sat on the mat .");
         String text = args.length > 0 ? String.join(" ", args) : "The cat sat on the mat .";
         List<String> tokens = TextUtils.tokenizeWithPunctuation(text);
         int[] tags = new POSTagger().tag(tokens);

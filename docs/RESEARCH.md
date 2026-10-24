@@ -36,7 +36,7 @@ leaderboard attempt, and the paper should say so.
 | review point | what was done | where | status |
 |---|---|---|---|
 | TIRA deployment returned a constant 1 | `TiraRunner` loads the saved model, **refuses to start without one** (no silent fallback), keeps one output label per sentence pair, and writes the file for every input; `scripts/tira_selftest.sh` checks that predictions are not constant | `TiraRunner.java`, `Dockerfile`, `scripts/tira_selftest.sh` | tested locally on stand-in data; **Docker image and TIRA itself not built or run here** |
-| results on the full dataset | `Main`, `Ablation`, `RetrievalMain` read `dataset/mawsa26-pan-zenodo-DATA/` (all three difficulties) and report overall + per difficulty; `-Dfull.validation=true` uses the whole validation split | `Main.java`, `data/DatasetLoader.java` | **needs the Zenodo data (not reachable from the sandbox)** |
+| results on the full dataset | `Main`, `Ablation`, `RetrievalMain` read `dataset/mawsa26-pan-zenodo-DATA/` (all three difficulties) and report overall + per difficulty; `-Dfull.validation=true` uses the whole validation split | `cli/Main.java`, `data/DatasetLoader.java` | **needs the Zenodo data (not reachable from the sandbox)** |
 | justification of features and classifiers | sections 3 - 5 of this file, and the ablation (section 7) | this file | text done, numbers need real data |
 | not all described features were used | the paper described 14 features + a trigram profile + a 16-feature pair vector. The code now has **63 scalar features + 3 profile types**, every one named in `FeatureExtractor.SCALAR_NAMES` and grouped in `FeatureGroup` so each group can be switched off | `features/` | done; the paper text must be rewritten to match (section 10) |
 | title format | "Team redblinkinglight at PAN 2026: ..." | manuscript | **to do in the paper** (section 10) |
@@ -176,6 +176,22 @@ Optional: hardest-of-k negative mining, negatives from other documents.
 than the raw-feature cosine (it overfits the training authors; see section 8). Whether it helps on
 the real data is exactly what `RetrievalMain` / the Retrieve page measure. Do not claim a benefit before that run.
 
+### 6a. Author counts from the truth files, and the author-count estimate
+
+**Training labels.** Each truth file gives the number of authors and the change flags. `data/SegmentAuthorship.java` turns them into
+what is certain about two segments: neighbouring segments differ; if the number of authors equals the number of
+segments, all segments differ; with two authors the segments alternate, so segments an even distance apart share
+an author and an odd distance apart do not; in every other case the relation is unknown and the pair is not used. `data/TripletSampler.java` draws
+anchor, positive and hardest-of-N negative under this rule (`-Dret.authorcounts=true`, the default). The positive can come from a non-adjacent segment
+of the same author with probability `-Dret.farpositive` (0.2). `SamplerCheck` found no wrong label in the drawn triplets on the stand-in data. No accuracy
+gain from this sampling has been shown yet; compare `-Dret.authorcounts=false` and `true` on the real data.
+
+**Author-count estimate.** `analysis/DocumentSegmentation.java`: the change scores of the retrieval model are compared with the
+decision threshold of the detected difficulty level; every change closes a segment and the number of segments is the estimate. Segments are not authors: a document with
+12 segments and 4 authors (the sample truth file) is estimated at 12. The estimate is therefore an upper bound whenever an
+author returns and a lower bound when a change is missed. `RetrievalMain` reports the exact-match rate and the mean absolute and signed error against the truth files.
+
+
 ---------------------------------------------------------------------------------------------------
 
 ## 7. The ablation study
@@ -217,8 +233,8 @@ TRAIN split only. `models/LevelRouter` then picks the threshold of the detected 
 If the detector or the thresholds are missing, the router does **not** guess: it uses the pooled threshold and says why.
 `DifficultyMain evaluate` reports three numbers per level on the held-out half: pooled threshold, threshold of the TRUE level
 (the upper bound), and threshold of the DETECTED level, so the cost of detecting the level is measured, not assumed.
-The accuracy of the detector on the real PAN data is not known until it is run; medium against hard is expected to be the
-weak pair, because both have little topic variety. `TiraRunner --difficulty auto` (default) decides per document,
+Measured accuracy of the detector: see section 8a (88.8% of the held-out validation documents).
+`TiraRunner --difficulty auto` (default) decides per document,
 `auto-dataset` decides once per dataset from the mean probability (more stable, because TIRA scores one level at a time),
 `easy|medium|hard` forces a level and `none` uses the pooled threshold.
 
@@ -286,6 +302,60 @@ features in the same runs). Window 5 was worse than 1 - 3 (AUC 0.59). So **there
 it overfits to the training authors. That is a finding to report honestly, and it may change on PAN where training has many more authors.
 
 ---------------------------------------------------------------------------------------------------
+
+## 8a. Results on the REAL PAN 2026 data (author's run on a Google VM, Debian, Java 25, 4 cores, 31 GB)
+
+All numbers: macro-F1 on the **second half of the validation split** (259,653 sentence pairs, 3,375 documents; nothing used
+it for training, settings or thresholds), one run, one seed. Source logs: `train.log`, `difficulty.log`, `evaluate.log`.
+Official all-0 baseline on this half: easy 0.413, medium 0.489, hard 0.441 (all 0.462). Thresholds are chosen on the first
+validation half of each level.
+
+**Models, one pooled threshold (what the first study did).**
+
+| model | easy | medium | hard | all |
+|---|---:|---:|---:|---:|
+| decision tree | 0.914 | 0.501 | 0.444 | 0.712 |
+| logistic regression | 0.914 | 0.508 | 0.449 | 0.710 |
+| neural network | 0.923 | 0.505 | 0.446 | 0.711 |
+| retrieval (extra) | 0.850 | 0.536 | 0.487 | 0.662 |
+
+**Threshold of the true level / threshold of the DETECTED level (the level is not given) / one level voted for the whole level folder.**
+
+| model | level | true level | detected | folder vote |
+|---|---|---:|---:|---:|
+| tree | easy / medium / hard | 0.935 / 0.503 / 0.553 | 0.887 / 0.503 / 0.552 | 0.935 / 0.503 / 0.553 |
+| logistic | easy / medium / hard | 0.935 / 0.506 / 0.538 | 0.906 / 0.507 / 0.536 | 0.935 / 0.506 / 0.538 |
+| neural | easy / medium / hard | 0.944 / 0.505 / 0.544 | 0.905 / 0.506 / 0.544 | 0.944 / 0.505 / 0.544 |
+| retrieval | easy / medium / hard | 0.899 / 0.541 / 0.570 | 0.874 / 0.541 / 0.569 | 0.899 / 0.541 / 0.570 |
+
+Macro-F1 over all pairs: pooled / true level / detected / folder vote = tree 0.712 / 0.719 / 0.707 / 0.719; logistic
+0.710 / 0.729 / 0.719 / 0.729; neural 0.711 / 0.722 / 0.712 / 0.722; retrieval 0.662 / 0.722 / 0.711 / 0.722.
+
+**Difficulty detector.** Accuracy 0.888 on the 3,375 held-out documents (first half: 0.882). Rows are the true level:
+easy [883, 40, 202], medium [39, 1083, 3], hard [81, 14, 1030] (columns easy / medium / hard). So medium is separated from
+hard almost perfectly, and the confusion is between **easy and hard**, which both have documents of similar length.
+
+What this supports, and what it does not:
+
+1. **Tuning the threshold per level matters most for hard.** Hard goes from the baseline level (0.44 - 0.49) to 0.54 - 0.57 with its own
+   threshold. This is the same effect as in the first run and it is the result with the clearest support.
+2. **Detecting the level costs little when it is done for the whole dataset.** The folder vote chose the right level for all
+   three folders, and its scores equal the true-level scores. Per document, the detector costs about 0.010 macro-F1 against
+   the true level (it mostly loses on easy: 202 easy documents get the hard threshold). For the three pair models the
+   per-document detector is **not better than the pooled threshold overall** (-0.004 to +0.009, within noise); for the retrieval model it
+   is clearly better (+0.049) because its pooled threshold was a poor fit for hard.
+3. **Medium is still at the baseline level for the three pair models** (0.50 - 0.51 against 0.489). The retrieval model
+   is the only one with a visible gain there (0.536 pooled, 0.541 with its level threshold, about +0.05).
+4. **The three pair models are equal overall** (0.710 - 0.712). The difference between them is smaller than 0.01 and is within noise
+   for one seed; do not rank them without `-Dseeds=42,123,456`.
+5. **Easy is mostly topic.** Easy reaches 0.91 - 0.94 with simple features; this says little about style.
+6. **For context** the best 2026 systems reach about 0.77 on medium and hard. These models are an interpretable baseline,
+   well below that, and the paper must say so.
+
+Caveat on the detector: the document features show that medium documents have about 3 times as many sentences as easy
+or hard ones (mean of ln(1+sentences): easy 3.59, medium 4.80, hard 3.78), and the sentence count is one of the 16 inputs. Part
+of the 0.888 therefore comes from a property of how this dataset was built. If another test set is built differently,
+the detector must be retrained and re-evaluated; do not claim it detects "topic variety" in general.
 
 ## 9. References (all checked to exist; open the link before quoting page numbers)
 

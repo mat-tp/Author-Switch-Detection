@@ -4,7 +4,7 @@ import com.hyp.authorswitchdetection.ml.MlModelLoader;
 import com.hyp.authorswitchdetection.ml.PairFeatureUtil;
 import features.FeatureConfig;
 import features.FeatureExtractor;
-import models.ModelStore;
+import persistence.ModelStore;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;

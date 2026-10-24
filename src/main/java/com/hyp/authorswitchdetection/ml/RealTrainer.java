@@ -1,15 +1,18 @@
 package com.hyp.authorswitchdetection.ml;
 
+import pipeline.ModelDefaults;
 import com.hyp.authorswitchdetection.service.TrainingStatus;
 import data.Corpus;
 import features.FeatureConfig;
 import features.FeatureExtractor;
 import models.DecisionTree;
 import models.LogisticRegression;
-import models.Metrics;
-import models.ModelStore;
+import evaluation.LevelEvaluation;
+import evaluation.Metrics;
+import evaluation.ThresholdSelector;
+import persistence.ModelStore;
 import models.NeuralNetwork;
-import models.RetrievalPipeline;
+import pipeline.RetrievalPipeline;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -18,7 +21,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -28,8 +30,8 @@ import java.util.function.Function;
  *
  * Everything that is not the grid is shared with Main, not copied: the data (data.Corpus), the features
  * (features.FeatureExtractor, settings from features.FeatureConfig), the pair vectors
- * (data.PairMatrixBuilder), the file format (models.ModelStore) and the retrieval model
- * (models.RetrievalPipeline). A model trained here is therefore the same kind of model as one trained
+ * (data.PairMatrixBuilder), the file format (persistence.ModelStore) and the retrieval model
+ * (pipeline.RetrievalPipeline). A model trained here is therefore the same kind of model as one trained
  * by Main, and a change in the features reaches both.
  *
  * Held-out test split: the "validation" split of PAN is divided into two halves (by problem ID, seeded,
@@ -91,10 +93,6 @@ public class RealTrainer {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Data
-    // ------------------------------------------------------------------
-
     private FeatureConfig baseConfig(boolean full) {
         FeatureConfig config = FeatureConfig.fromSystemProperties();
         config.fullBlockDifferences = full;
@@ -121,10 +119,6 @@ public class RealTrainer {
         return new Variant(full, corpus.build(baseConfig(full)));
     }
 
-    // ------------------------------------------------------------------
-    // The three pair models
-    // ------------------------------------------------------------------
-
     public Outcome trainDecisionTree(TrainingStatus status) {
 
         Corpus corpus = loadCorpus(status, false);
@@ -139,8 +133,8 @@ public class RealTrainer {
          *   not clearly better the simpler one wins (Occam's razor): the shallowest
          *   depth within simplicityTolerance of the best validation macro-F1.
          */
-        int[] maxDepths = { 2, 3, 4, 5 };
-        final double simplicityTolerance = 0.005;
+        int[] maxDepths = ModelDefaults.TREE_DEPTH_GRID;
+        final double simplicityTolerance = ModelDefaults.TREE_SIMPLICITY_TOLERANCE;
 
         Variant v = build(corpus, false, status, 20);
         Corpus.Datasets d = v.data;
@@ -157,8 +151,10 @@ public class RealTrainer {
 
         for (int i = 0; i < maxDepths.length; i++) {
 
-            DecisionTree tree = new DecisionTree(d.train, d.trainY, maxDepths[i], 20, 5, 0.0);
-            tree.setMaxBins(Integer.getInteger("tree.bins", 0));
+            DecisionTree tree = new DecisionTree(d.train, d.trainY, maxDepths[i],
+                    ModelDefaults.TREE_MIN_SAMPLES_SPLIT, ModelDefaults.TREE_MIN_SAMPLES_LEAF,
+                    ModelDefaults.TREE_MIN_IMPURITY_DECREASE);
+            tree.setMaxBins(ModelDefaults.TREE_MAX_BINS);
             tree.makeBinaryTree();
             trees[i] = tree;
 
@@ -193,9 +189,9 @@ public class RealTrainer {
 
         Corpus corpus = loadCorpus(status, true);
 
-        double[] learningRates = { 0.1, 0.6 };
-        int searchIterations = 800;
-        int finalIterations = 4000;
+        double[] learningRates = ModelDefaults.LOGISTIC_LEARNING_RATE_GRID;
+        int searchIterations = ModelDefaults.LOGISTIC_SEARCH_ITERATIONS;
+        int finalIterations = ModelDefaults.LOGISTIC_FINAL_ITERATIONS;
 
         Outcome outcome = new Outcome();
         outcome.curveXLabel = "iteration";
@@ -215,7 +211,7 @@ public class RealTrainer {
             for (double lr : learningRates) {
 
                 double[] weightsBias = LogisticRegression.gradiantDescent(v.data.train, v.data.trainY,
-                        searchIterations, lr, true);
+                        searchIterations, lr, ModelDefaults.LOGISTIC_CLASS_WEIGHTS);
                 double score = validationMacroF1(m -> LogisticRegression.predictProbabilities(m, weightsBias), v.data);
 
                 outcome.gridResults.add(v.label() + " features, lr=" + lr + " -> validation macro-F1=" + round(score));
@@ -236,7 +232,7 @@ public class RealTrainer {
 
         List<Double> lossHistory = new ArrayList<>();
         double[] weightsBias = LogisticRegression.gradiantDescent(d.train, d.trainY, finalIterations,
-                bestLearningRate, true, lossHistory);
+                bestLearningRate, ModelDefaults.LOGISTIC_CLASS_WEIGHTS, lossHistory);
 
         // downsampling the loss history so the chart on the page stays light
         int recordEvery = Math.max(1, lossHistory.size() / 300);
@@ -254,9 +250,9 @@ public class RealTrainer {
 
         Corpus corpus = loadCorpus(status, true);
 
-        int[][] hiddenSizeOptions = { { 64, 32 }, { 128, 64, 32 } };
-        int searchEpochs = 8;
-        int finalEpochs = 40;
+        int[][] hiddenSizeOptions = ModelDefaults.NEURAL_HIDDEN_LAYERS_GRID;
+        int searchEpochs = ModelDefaults.NEURAL_SEARCH_EPOCHS;
+        int finalEpochs = ModelDefaults.NEURAL_FINAL_EPOCHS;
 
         Outcome outcome = new Outcome();
         outcome.curveXLabel = "epoch";
@@ -276,8 +272,12 @@ public class RealTrainer {
         for (Variant v : variants) {
             for (int[] hidden : hiddenSizeOptions) {
 
-                NeuralNetwork network = new NeuralNetwork(v.data.train, v.data.trainY, hidden, 5.0);
-                network.train(searchEpochs, 0.001, 64, 1e-2, 0.2, true, v.data.val, v.data.valY, 3);
+                NeuralNetwork network = new NeuralNetwork(v.data.train, v.data.trainY, hidden,
+                        ModelDefaults.NEURAL_FEATURE_CLIP);
+                network.train(searchEpochs, ModelDefaults.NEURAL_LEARNING_RATE, ModelDefaults.NEURAL_BATCH_SIZE,
+                        ModelDefaults.NEURAL_L2_PENALTY, ModelDefaults.NEURAL_DROPOUT,
+                        ModelDefaults.NEURAL_CLASS_WEIGHTS, v.data.val, v.data.valY,
+                        ModelDefaults.NEURAL_SEARCH_PATIENCE);
                 double score = validationMacroF1(network::predictProbabilities, v.data);
 
                 outcome.gridResults.add(v.label() + " features, hidden=" + Arrays.toString(hidden)
@@ -297,10 +297,12 @@ public class RealTrainer {
         step(status, "Final training run with the best configuration...", 55);
         Corpus.Datasets d = bestVariant.data;
 
-        NeuralNetwork network = new NeuralNetwork(d.train, d.trainY, bestHidden, 5.0);
+        NeuralNetwork network = new NeuralNetwork(d.train, d.trainY, bestHidden, ModelDefaults.NEURAL_FEATURE_CLIP);
         List<double[]> lossHistory = new ArrayList<>();
         // validation data is used for early stopping only (never the test split)
-        network.train(finalEpochs, 0.001, 64, 1e-2, 0.2, true, d.val, d.valY, 8, lossHistory);
+        network.train(finalEpochs, ModelDefaults.NEURAL_LEARNING_RATE, ModelDefaults.NEURAL_BATCH_SIZE,
+                ModelDefaults.NEURAL_L2_PENALTY, ModelDefaults.NEURAL_DROPOUT, ModelDefaults.NEURAL_CLASS_WEIGHTS,
+                d.val, d.valY, ModelDefaults.NEURAL_PATIENCE, lossHistory);
 
         for (int epoch = 0; epoch < lossHistory.size(); epoch++) {
             double[] row = lossHistory.get(epoch);
@@ -315,10 +317,6 @@ public class RealTrainer {
         return finish(status, outcome, ModelStore.NEURAL, "neuralNetwork.ser", network, d,
                 network::predictProbabilities, config);
     }
-
-    // ------------------------------------------------------------------
-    // The retrieval model
-    // ------------------------------------------------------------------
 
     /**
      * Trains the retrieval model (sentences embedded one by one, triplet loss) with the settings of
@@ -357,10 +355,6 @@ public class RealTrainer {
         return outcome;
     }
 
-    // ------------------------------------------------------------------
-    // Shared steps
-    // ------------------------------------------------------------------
-
     /** Validation macro-F1 at the best threshold (the number a grid search compares), 0 without validation data. */
     private double validationMacroF1(Function<double[][], double[]> probabilities, Corpus.Datasets d) {
 
@@ -368,8 +362,8 @@ public class RealTrainer {
             return 0.0;
         }
         double[] p = probabilities.apply(d.val);
-        double threshold = LogisticRegression.findBestThreshold(p, d.valY);
-        return Metrics.calcMacroF1(LogisticRegression.predict(p, threshold), d.valY);
+        double threshold = ThresholdSelector.findBestThreshold(p, d.valY);
+        return Metrics.calcMacroF1(ThresholdSelector.apply(p, threshold), d.valY);
     }
 
     /**
@@ -379,10 +373,7 @@ public class RealTrainer {
     private Outcome finish(TrainingStatus status, Outcome outcome, String type, String fileName, Object model,
             Corpus.Datasets d, Function<double[][], double[]> probabilities, String config) {
 
-        double threshold = 0.5;
-        if (d.val != null) {
-            threshold = LogisticRegression.findBestThreshold(probabilities.apply(d.val), d.valY);
-        }
+        double threshold = LevelEvaluation.chooseThreshold(probabilities, d.val, d.valY);
         final double finalThreshold = threshold;
 
         step(status, "Evaluating with the chosen threshold on the held-out test split...", 80);
@@ -390,19 +381,13 @@ public class RealTrainer {
         int nPairs = 0;
         if (d.eval != null) {
             // eval = test when there is a test half, else the validation half (d.evalIsTest says which)
-            result = Metrics.evaluateQuietly(LogisticRegression.predict(probabilities.apply(d.eval), threshold), d.evalY);
+            result = Metrics.evaluateQuietly(ThresholdSelector.apply(probabilities.apply(d.eval), threshold), d.evalY);
             nPairs = d.evalY.length;
         }
 
         step(status, "Breaking the result down by difficulty (easy / medium / hard)...", 88);
-        StringBuilder breakdown = new StringBuilder();
-        for (Map.Entry<String, double[][]> e : d.evalByDifficulty.entrySet()) {
-            int[] predictions = LogisticRegression.predict(probabilities.apply(e.getValue()), finalThreshold);
-            if (breakdown.length() > 0) {
-                breakdown.append(";");
-            }
-            breakdown.append(Metrics.formatBreakdownEntry(e.getKey(), predictions, d.evalYByDifficulty.get(e.getKey())));
-        }
+        String breakdown = LevelEvaluation.breakdown(probabilities, finalThreshold, d.evalByDifficulty,
+                d.evalYByDifficulty, d.evalByDifficulty.keySet(), null);
 
         step(status, "Saving model...", 95);
         saveModel(fileName, type, model, threshold, d.extractor, config);
@@ -410,7 +395,7 @@ public class RealTrainer {
         outcome.chosenConfig = config;
         outcome.featureConfig = d.extractor.getConfig().signature();
         outcome.threshold = threshold;
-        outcome.difficultyBreakdownCsv = breakdown.toString();
+        outcome.difficultyBreakdownCsv = breakdown;
         outcome.evaluatedOnTest = d.evalIsTest;
         outcome.nTestPairs = nPairs;
         if (result != null) {

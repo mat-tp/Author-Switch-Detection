@@ -4,97 +4,106 @@ import java.io.Serializable;
 import java.util.Arrays;
 
 /**
- * Every setting that changes HOW the features of a sentence are computed, in
- * one place. It is saved together with the model (inside the FeatureExtractor),
- * so a loaded model always computes its features exactly the way it was trained,
- * and the ablation study (Ablation.java) can vary one setting at a time.
+ * Centralized configuration class managing feature computation parameters for sentences.
  *
- * Settings come from -D options (same style as Main.java / Ablation.java), for
- * example:
+ * <p>Instances are serialized alongside model files inside {@code FeatureExtractor}, ensuring that
+ * loaded models compute features identically to their training state. It also allows
+ * automated ablation studies ({@code Ablation.java}) to systematically vary individual parameters.</p>
  *
+ * <p><strong>System Property Options ({@code -D} flags):</strong></p>
+ * <pre>
  * java -Dcasing=hybrid -Dchar.n=2,3,4 -Dchar.buckets=512 -Dpair=concat -cp out Main
+ * </pre>
  *
- * | option         | values                                   | default  |
- * | -------------- | ---------------------------------------- | -------- |
- * | casing         | preserve | lower | hybrid                | preserve |
- * | char.n         | any of 1..5, comma separated, "" = none  | 3        |
- * | char.buckets   | hash buckets of EVERY character profile  | 256      |
- * | char.typed     | true = only affix + punctuation n-grams  | false    |
- * | pos.n          | any of 1..5, comma separated, "" = none  | 2        |
- * | pos.buckets    | hash buckets of EVERY POS profile        | 128      |
- * | pos.tagger     | heuristic | corenlp                      | heuristic|
- * | fw.profile     | true = function-word frequency profile   | true     |
- * | full           | true = also give the raw bucket diffs    | false    |
- * | pair           | see SentencePair.Representation          | absolute |
- * | z.clip         | scalar z-scores are cut at +-this (0=off)| 5        |
+ * <table border="1">
+ *   <caption>Available Configuration Options</caption>
+ *   <tr><th>Option</th><th>Values</th><th>Default</th></tr>
+ *   <tr><td>{@code casing}</td><td>{@code preserve | lower | hybrid}</td><td>{@code preserve}</td></tr>
+ *   <tr><td>{@code char.n}</td><td>Comma-separated range {@code 1..5}, {@code ""} = none</td><td>{@code 3}</td></tr>
+ *   <tr><td>{@code char.buckets}</td><td>Hash buckets per character profile</td><td>{@code 256}</td></tr>
+ *   <tr><td>{@code char.typed}</td><td>{@code true} = affix + punctuation n-grams only</td><td>{@code false}</td></tr>
+ *   <tr><td>{@code pos.n}</td><td>Comma-separated range {@code 1..5}, {@code ""} = none</td><td>{@code 2}</td></tr>
+ *   <tr><td>{@code pos.buckets}</td><td>Hash buckets per POS profile</td><td>{@code 128}</td></tr>
+ *   <tr><td>{@code pos.tagger}</td><td>{@code heuristic | corenlp}</td><td>{@code heuristic}</td></tr>
+ *   <tr><td>{@code fw.profile}</td><td>{@code true} = function-word frequency profile</td><td>{@code true}</td></tr>
+ *   <tr><td>{@code full}</td><td>{@code true} = include raw bucket differences</td><td>{@code false}</td></tr>
+ *   <tr><td>{@code pair}</td><td>See {@code SentencePair.Representation}</td><td>{@code ABSOLUTE}</td></tr>
+ *   <tr><td>{@code z.clip}</td><td>Scalar z-score threshold boundary (0 = off)</td><td>{@code 5.0}</td></tr>
+ * </table>
  *
- * The defaults are provisional: they are the settings the literature points to
- * (character 3-grams, see docs/RESEARCH.md), the ablation study decides the
- * final ones on the real PAN data.
+ * <p><em>Note: Default values reflect preliminary literature baselines (see {@code docs/RESEARCH.md});
+ * final configurations are evaluated via ablation experiments on PAN benchmark datasets.</em></p>
  */
 public class FeatureConfig implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     /**
-     * What happens with the letter case of the text.
-     *
-     * PRESERVE: the text is used exactly as written. "I" and "i" differ, capitals
-     * and ALL-CAPS words are visible to every feature (authors differ in
-     * these habits).
-     * LOWERCASE: the text is lower-cased before ANY feature is computed. Fewer
-     * distinct n-grams (denser profiles, less topic noise from names), but every
-     * capital-letter signal is lost.
-     * HYBRID: the scalar features (uppercase ratio, ALL-CAPS words, ...) see the
-     * original text, the hashed profiles (character n-grams, POS n-grams,
-     * function words) see the lower-cased text.
+     * Defines casing treatment during feature extraction.
      */
     public enum Casing {
-        PRESERVE, LOWERCASE, HYBRID
+        /** Text remains untouched. Preserves capitalization signals and ALL-CAPS usage differences across authors. */
+        PRESERVE,
+
+        /** Text is completely lower-cased prior to feature generation, yielding denser profiles with lower topic noise. */
+        LOWERCASE,
+
+        /** Scalar features inspect original casing; hashed profiles (char/POS n-grams, function words) inspect lower-cased text. */
+        HYBRID
     }
 
-    // ---- The settings (public, plain fields, the same way the models keep theirs)
+    // Configuration Settings (Public fields retained for model compatibility)
 
+    /** Casing strategy applied during extraction. */
     public Casing casing = Casing.PRESERVE;
 
-    /** Orders n of the hashed character n-gram profiles, each one is its own block. */
+    /** N-gram order lengths for character profiles; each order operates in its own block. */
     public int[] charNGramOrders = { 3 };
+
+    /** Total hash bucket count allocated per character n-gram profile. */
     public int charBuckets = 256;
 
-    /** true = only the affix and punctuation n-grams (Sapkota et al., 2015), they carry less topic. */
+    /** When set to {@code true}, restricts character n-grams to affixes and punctuation (Sapkota et al., 2015). */
     public boolean charTyped = false;
 
-    /** Orders n of the hashed POS-tag n-gram profiles. */
+    /** N-gram order lengths for POS tag profiles. */
     public int[] posNGramOrders = { 2 };
+
+    /** Total hash bucket count allocated per POS n-gram profile. */
     public int posBuckets = 128;
 
-    /** "heuristic" (built in, no libraries) or "corenlp" (Stanford CoreNLP, needs the CoreNLP jars). */
+    /** Selected POS tagger implementation: {@code "heuristic"} (built-in) or {@code "corenlp"} (Stanford CoreNLP). */
     public String posTagger = "heuristic";
 
-    /** Function-word frequency profile (one bucket per function word, NOT hashed). */
+    /** Enables the unhashed function-word frequency profile (1 bucket per word). */
     public boolean functionWordProfile = true;
 
     /**
-     * false: a profile only gives 4 numbers to the pair vector (cosine, Jensen-Shannon distance,
-     * total variation, support overlap).
-     * true: the absolute difference of every bucket is added too (much wider vector).
+     * Toggles detailed vector outputs for profile blocks.
+     * <ul>
+     *   <li>{@code false}: Profile yields 4 summary metrics (cosine, Jensen-Shannon, total variation, support overlap).</li>
+     *   <li>{@code true}: Appends raw bucket absolute differences, expanding vector width.</li>
+     * </ul>
      */
     public boolean fullBlockDifferences = false;
 
-    /** How the two sentences of a pair become one vector, see data.SentencePair.Representation. */
+    /** Pair representation transformation method (refers to {@code data.SentencePair.Representation}). */
     public String pairRepresentation = "ABSOLUTE";
 
     /**
-     * The z-scores of the scalar features are cut at +-zClip (0 = no clipping). A rare feature
-     * (ellipses, repeated marks, ALL-CAPS words) has a tiny standard deviation on the training
-     * sentences, so one sentence that uses it gets a z-score of 50 or 150 and the difference of the pair
-     * then dominates a linear model. The clip keeps the order of the values and removes the outliers.
+     * Maximum z-score threshold boundary applied to scalar features (0 = disabled).
+     * <p>Prevents extreme outliers in low-variance features (e.g., ellipses, ALL-CAPS words)
+     * from distorting linear models.</p>
      */
     public double zClip = 5.0;
 
-    // ---- Construction
+    // Construction
 
-    /** The default settings, then every -D option on top. */
+    /**
+     * Instantiates a default {@code FeatureConfig} and overrides properties using System {@code -D} flags.
+     *
+     * @return Validated {@link FeatureConfig} instance.
+     */
     public static FeatureConfig fromSystemProperties() {
 
         FeatureConfig config = new FeatureConfig();
@@ -117,6 +126,11 @@ public class FeatureConfig implements Serializable {
         return config;
     }
 
+    /**
+     * Creates a deep copy of this configuration instance.
+     *
+     * @return A cloned {@link FeatureConfig} object.
+     */
     public FeatureConfig copy() {
 
         FeatureConfig c = new FeatureConfig();
@@ -134,7 +148,11 @@ public class FeatureConfig implements Serializable {
         return c;
     }
 
-    /** Fails early, with a readable message, instead of an ArrayIndexOutOfBounds in the middle of a long run. */
+    /**
+     * Validates configuration settings to fail fast prior to running execution loops.
+     *
+     * @throws IllegalArgumentException If any option setting falls outside valid bounds.
+     */
     public void validate() {
 
         for (int n : charNGramOrders) {
@@ -156,24 +174,28 @@ public class FeatureConfig implements Serializable {
         if (!posTagger.equals("heuristic") && !posTagger.equals("corenlp")) {
             throw new IllegalArgumentException("pos.tagger must be heuristic or corenlp, got " + posTagger);
         }
-        // normalised name (abs+mean -> ABSOLUTE_AND_MEAN), fails here when it is not a representation
+        // Normalize name (e.g., abs+mean -> ABSOLUTE_AND_MEAN); validates representation validity early
         pairRepresentation = data.SentencePair.Representation.parse(pairRepresentation).name();
     }
 
-    // ---- Parsing helpers
+    // Parsing helpers
 
+    /**
+     * Parses casing option strings, supporting shorthand inputs (e.g., "lower").
+     */
     private static Casing parseCasing(String text) {
 
         String value = text.trim().toUpperCase();
 
-        // short forms, so -Dcasing=lower works
         if (value.startsWith("LOWER")) {
             return Casing.LOWERCASE;
         }
         return Casing.valueOf(value);
     }
 
-    /** "2,3,4" -> {2,3,4}, "" -> {} (the profile is switched off), null -> the fallback. */
+    /**
+     * Parses comma-separated integer n-gram order lists (e.g., "2,3,4" -> {2, 3, 4}).
+     */
     static int[] parseOrders(String text, int[] fallback) {
 
         if (text == null) {
@@ -191,7 +213,12 @@ public class FeatureConfig implements Serializable {
         return orders;
     }
 
-    /** Short text for logs, the metrics rows and the ablation cache key. */
+    /**
+     * Generates a compact string signature representing current settings for logging,
+     * metrics tracking, and ablation caching.
+     *
+     * @return Compact configuration identifier string.
+     */
     public String signature() {
 
         return "case=" + casing.name().toLowerCase()

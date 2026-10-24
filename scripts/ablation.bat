@@ -1,217 +1,94 @@
-
 @echo off
 setlocal
+rem ---------------------------------------------------------------------------
+rem Runs the automated ablation study (Windows; ablation.sh is the Linux and
+rem macOS version).
+rem
+rem The study measures which feature groups and settings matter:
+rem   - Feature-group importance:  Importance(G) = F1(all features) - F1(all features without G)
+rem   - Parameter ablation of the decision tree, the logistic regression and the neural network.
+rem
+rem Usage:
+rem   scripts\ablation.bat                features + parameters + pipeline, all three models
+rem   scripts\ablation.bat features       feature-group ablation only
+rem   scripts\ablation.bat params         parameter ablation only
+rem   scripts\ablation.bat pipeline       pipeline settings: character n-gram order 1..5, bucket sizes,
+rem                                       casing, POS n-grams, pair representation, z-score clipping
+rem                                       and the POS tagger
+rem   scripts\ablation.bat retrieval      the retrieval model: embedding size, margin, hard-negative
+rem                                       mining, n-gram orders, buckets, casing and window
+rem
+rem Options are passed through the JAVA_OPTS environment variable:
+rem   set JAVA_OPTS=-Xmx24g                          more memory
+rem   set JAVA_OPTS=-Dmodels=tree                    one model only
+rem   set JAVA_OPTS=-Dseeds=42,123,456               mean and standard deviation over three seeds
+rem   set JAVA_OPTS=-Dquick=true -Dsubset=50000      fast trial run
+rem   set JAVA_OPTS=-Ddifficulty=hard                the whole study on one level (easy, medium, hard)
+rem
+rem The retrieval study writes to data\ablation\retrieval_ablation.csv; set RET_CSV to choose another file.
+rem
+rem Results are written while the study runs, so an interrupted run keeps what has finished:
+rem   data\ablation\ablation_results.csv   one row per run
+rem   data\ablation\ablation_report.md     importance ranking, parameter tables and the best settings
+rem   data\ablation\ablation_tables.tex    LaTeX tables for the manuscript
+rem
+rem The JDK is taken from ASD_JDK_HOME (default C:\jdk-25 when that folder exists), otherwise
+rem from JAVA_HOME or the PATH.
+rem ---------------------------------------------------------------------------
 
-REM ============================================================
-REM HYP - AUTOMATED ABLATION STUDY
-REM ============================================================
-REM Feature-group importance:
-REM Importance(G) = F1_all - F1_without_G
-REM
-REM Supports feature-group and parameter ablation for:
-REM Decision Tree, Logistic Regression and Neural Network.
-REM
-REM Usage:
-REM   scripts\ablation.bat
-REM   scripts\ablation.bat all
-REM   scripts\ablation.bat features
-REM   scripts\ablation.bat params
-REM
-REM Optional JVM options:
-REM   set JAVA_OPTS=-Xmx24g
-REM   scripts\ablation.bat
-REM
-REM   set JAVA_OPTS=-Dmodels=tree
-REM   scripts\ablation.bat params
-REM
-REM   set JAVA_OPTS=-Dseeds=42,123,456
-REM   scripts\ablation.bat
-REM
-REM   set JAVA_OPTS=-Dquick=true -Dsubset=50000
-REM   scripts\ablation.bat
-REM
-REM Modes: all | features | params | pipeline (n-gram order 1..5, buckets, casing, pair representation)
-REM        | retrieval (the retrieval model, writes retrieval_ablation.csv)
-REM
-REM Results:
-REM   data\ablation\ablation_results.csv
-REM   data\ablation\ablation_report.md
-REM   data\ablation\ablation_tables.tex
-
-cls
-
-REM ============================================================
-REM JAVA CONFIGURATION
-REM Keep the same Java installation as build.bat.
-REM ============================================================
-
-set "JAVA_HOME_OVERRIDE=C:\jdk-25"
-
-if exist "%JAVA_HOME_OVERRIDE%\bin\javac.exe" (
-    set "JAVA_HOME=%JAVA_HOME_OVERRIDE%"
-    set "PATH=%JAVA_HOME%\bin;%PATH%"
-)
-
-echo.
-echo        HYP - ABLATION STUDY
-echo.
-echo JAVA_HOME:
-if defined JAVA_HOME (
-    echo %JAVA_HOME%
-) else (
-    echo ^<not set, relying on PATH^>
-)
-echo.
-
-REM ============================================================
-REM MODE SELECTION
-REM ============================================================
+set "COMMON=%~dp0lib\common.bat"
 
 set "MODE=%~1"
 if not defined MODE set "MODE=all"
 
-if /I "%MODE%"=="all" goto MODE_VALID
-if /I "%MODE%"=="features" goto MODE_VALID
-if /I "%MODE%"=="params" goto MODE_VALID
-if /I "%MODE%"=="pipeline" goto MODE_VALID
-if /I "%MODE%"=="retrieval" goto MODE_VALID
+for %%M in (all features params pipeline retrieval) do (
+    if /I "%MODE%"=="%%M" goto :mode_valid
+)
+echo ERROR: unknown mode "%MODE%"
+echo Use: all ^| features ^| params ^| pipeline ^| retrieval
+goto :failed
 
-echo ERROR: Unknown mode "%MODE%"
-echo Use: all ^| features ^| params
-goto ERROR
+:mode_valid
 
-:MODE_VALID
+call "%COMMON%" :configure_java
+call "%COMMON%" :require_jdk
+if errorlevel 1 goto :failed
+call "%COMMON%" :enter_project_root
+if errorlevel 1 goto :failed
+call "%COMMON%" :warn_if_dataset_missing
 
-REM ============================================================
-REM JAVA CHECKS
-REM ============================================================
+rem cli.Ablation reuses the data pipeline of the other programs; javac follows the imports.
+call "%COMMON%" :compile cli\Ablation.java cli\RetrievalMain.java
+if errorlevel 1 goto :failed
 
-echo ~~~ Checking Java ~~~
+echo.
+echo Running the ablation study: %MODE%
+echo.
 
-where javac >nul 2>&1
+if /I "%MODE%"=="retrieval" goto :run_retrieval
+java %JAVA_OPTS% -cp "%ASD_OUT%" cli.Ablation %MODE%
+goto :run_finished
+
+:run_retrieval
+if not defined RET_CSV set "RET_CSV=data/ablation/retrieval_ablation.csv"
+if not exist "%ASD_ROOT%\data\ablation\" mkdir "%ASD_ROOT%\data\ablation"
+java %JAVA_OPTS% "-Dret.csv=%RET_CSV%" -cp "%ASD_OUT%" cli.RetrievalMain ablate
+
+:run_finished
 if errorlevel 1 (
-    echo ERROR: javac could not be found.
-    echo Install a JDK 17+ or check JAVA_HOME_OVERRIDE and PATH.
-    goto ERROR
-)
-
-where java >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: java could not be found.
-    goto ERROR
-)
-
-echo Java compiler version:
-javac -version
-if errorlevel 1 goto ERROR
-
-echo.
-echo Java runtime version:
-java -version
-if errorlevel 1 goto ERROR
-
-echo.
-echo Java is ready.
-echo.
-
-REM ============================================================
-REM PROJECT ROOT AND PATHS
-REM ============================================================
-
-cd /d "%~dp0.."
-if errorlevel 1 (
-    echo ERROR: Could not move to project directory.
-    goto ERROR
-)
-
-echo Project directory:
-cd
-echo.
-
-set "SRC=%CD%\src\main\java"
-set "OUT=%CD%\out"
-set "DATASET_DIR=%CD%\dataset\mawsa26-pan-zenodo-DATA"
-
-if not exist "%SRC%\Ablation.java" (
-    echo ERROR: Ablation.java not found at:
-    echo %SRC%\Ablation.java
-    goto ERROR
-)
-
-if not exist "%OUT%" mkdir "%OUT%"
-if not exist "%OUT%" (
-    echo ERROR: Could not create output directory.
-    goto ERROR
-)
-
-REM ============================================================
-REM DATASET CHECK
-REM ============================================================
-
-if not exist "%DATASET_DIR%\" (
-    echo WARNING: Dataset folder not found at:
-    echo   %DATASET_DIR%
-    echo.
-)
-
-REM ============================================================
-REM COMPILE ABLATION
-REM javac follows imports through -sourcepath.
-REM ============================================================
-
-echo          ^> Compiling Ablation.java
-echo.
-
-javac -encoding UTF-8 -sourcepath "%SRC%" -d "%OUT%" "%SRC%\Ablation.java" "%SRC%\RetrievalMain.java"
-
-if errorlevel 1 (
-    echo ERROR: Compilation failed.
-    goto ERROR
+    echo ERROR: the ablation study stopped with an error.
+    goto :failed
 )
 
 echo.
-echo Compilation successful.
+echo Finished. Results are in %ASD_ROOT%\data\ablation\
+echo   ablation_report.md, ablation_results.csv, ablation_tables.tex, retrieval_ablation.csv
+goto :succeeded
+
+:failed
 echo.
-
-REM ============================================================
-REM RUN ABLATION STUDY
-REM ============================================================
-
-echo          ^> Running the ablation study: %MODE%
-echo.
-
-if /I "%MODE%"=="retrieval" (
-    if not exist "data\ablation" mkdir "data\ablation"
-    java %JAVA_OPTS% -Dret.csv=data/ablation/retrieval_ablation.csv -cp "%OUT%" RetrievalMain ablate
-) else (
-    java %JAVA_OPTS% -cp "%OUT%" Ablation "%MODE%"
-)
-
-if errorlevel 1 (
-    echo ERROR: Ablation study failed.
-    goto ERROR
-)
-
-echo.
-echo        ^> Ablation study finished.
-echo        ^> Report: %CD%\data\ablation\ablation_report.md
-echo        ^> CSV:    %CD%\data\ablation\ablation_results.csv
-echo        ^> LaTeX:  %CD%\data\ablation\ablation_tables.tex
-echo.
-
-goto SUCCESS
-
-REM ============================================================
-REM EXIT HANDLING
-REM ============================================================
-
-:ERROR
-echo.
-echo              ^> ABLATION FAILED
-echo.
-endlocal
+echo ABLATION FAILED
 exit /b 1
 
-:SUCCESS
-endlocal
+:succeeded
 exit /b 0

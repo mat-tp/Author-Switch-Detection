@@ -1,10 +1,10 @@
 package com.hyp.authorswitchdetection.service;
 
-import models.Metrics;
+import evaluation.ConfusionMatrix;
 
 /**
- * Predicted labels compared with the uploaded truth values.
- * Positive class = 1 = author switch. Same definitions as models.Metrics.
+ * The predicted labels compared with the uploaded truth values, as shown on the prediction page.
+ * The positive class is 1, an author switch. Every number comes from {@link ConfusionMatrix}.
  */
 public class EvaluationMetrics {
 
@@ -14,46 +14,51 @@ public class EvaluationMetrics {
     public int trueNegatives;
     public int falseNegatives;
 
-    public int actualSwitches;    // switches in the truth file
-    public int predictedSwitches; // switches the model predicted
+    /** Switches in the truth file. */
+    public int actualSwitches;
+    /** Switches the model predicted. */
+    public int predictedSwitches;
 
     public double accuracy;
     public double precision;
-    public double recall;         // sensitivity
+    /** Sensitivity. */
+    public double recall;
     public double specificity;
-    public double f1;             // F1 of the change class
-    public double macroF1;        // mean of the F1 of both classes: the measure PAN 2026 ranks by
+    /** F1 score of the class 'switch'. */
+    public double f1;
+    /** Mean of the F1 scores of both classes, the measure PAN 2026 ranks by. */
+    public double macroF1;
     public double balancedAccuracy;
-    public double majorityBaseline; // accuracy of always predicting the bigger class
+    /** Accuracy of always predicting the bigger class. */
+    public double majorityBaseline;
 
+    /**
+     * Compares predictions with the truth.
+     *
+     * @param predictions 0 or 1 per sentence pair
+     * @param truth       0 or 1 per sentence pair
+     * @return the scores
+     */
     public static EvaluationMetrics of(int[] predictions, int[] truth) {
 
-        EvaluationMetrics m = new EvaluationMetrics();
-        int[] counts = Metrics.countOutcomes(predictions, truth); // {TP, FP, TN, FN}
+        ConfusionMatrix matrix = ConfusionMatrix.of(predictions, truth);
 
-        m.total = predictions.length;
-        m.truePositives = counts[0];
-        m.falsePositives = counts[1];
-        m.trueNegatives = counts[2];
-        m.falseNegatives = counts[3];
-
-        m.actualSwitches = m.truePositives + m.falseNegatives;
-        m.predictedSwitches = m.truePositives + m.falsePositives;
-        int actualSame = m.trueNegatives + m.falsePositives;
-
-        m.accuracy = ratio(m.truePositives + m.trueNegatives, m.total);
-        m.precision = ratio(m.truePositives, m.predictedSwitches);
-        m.recall = ratio(m.truePositives, m.actualSwitches);
-        m.specificity = ratio(m.trueNegatives, actualSame);
-        m.f1 = (m.precision + m.recall) == 0.0 ? 0.0 : 2.0 * m.precision * m.recall / (m.precision + m.recall);
-        m.balancedAccuracy = (m.recall + m.specificity) / 2.0;
-        m.macroF1 = Metrics.calcMacroF1(predictions, truth);
-        m.majorityBaseline = ratio(Math.max(m.actualSwitches, actualSame), m.total);
-
-        return m;
-    }
-
-    private static double ratio(int part, int whole) {
-        return whole == 0 ? 0.0 : (double) part / whole;
+        EvaluationMetrics metrics = new EvaluationMetrics();
+        metrics.total = matrix.total();
+        metrics.truePositives = matrix.truePositives;
+        metrics.falsePositives = matrix.falsePositives;
+        metrics.trueNegatives = matrix.trueNegatives;
+        metrics.falseNegatives = matrix.falseNegatives;
+        metrics.actualSwitches = matrix.actualChanges();
+        metrics.predictedSwitches = matrix.predictedChanges();
+        metrics.accuracy = matrix.accuracy();
+        metrics.precision = matrix.precision();
+        metrics.recall = matrix.recall();
+        metrics.specificity = matrix.specificity();
+        metrics.f1 = matrix.f1Change();
+        metrics.macroF1 = matrix.macroF1();
+        metrics.balancedAccuracy = matrix.balancedAccuracy();
+        metrics.majorityBaseline = matrix.majorityBaseline();
+        return metrics;
     }
 }

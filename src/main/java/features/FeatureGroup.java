@@ -4,21 +4,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The feature groups of the project, used by the automated ablation study
- * (Ablation.java).
+ * Feature groups utilized by the automated ablation study ({@code Ablation.java}).
  *
- * A group is a set of SCALAR features (listed BY NAME, so a new feature in the middle of
- * FeatureExtractor.SCALAR_NAMES can not move a group onto the wrong column) and,
- * for the profile groups, the profile blocks the group owns (the hashed character n-grams,
- * the hashed POS n-grams, the function word profile) with their pair measures
- * (cosine, Jensen-Shannon, ...).
+ * <p>A feature group represents a logical collection of scalar features (referenced by name,
+ * ensuring index shifts in {@code FeatureExtractor.SCALAR_NAMES} will not offset group column allocations)
+ * as well as profile blocks owned by specific groups (e.g., hashed character n-grams, hashed POS n-grams,
+ * and function-word profiles with their corresponding pair distance measures).</p>
  *
- * WHEN A NEW FEATURE IS ADDED: add its name to FeatureExtractor.SCALAR_NAMES, then add the
- * name to a group here (or a new group with ONE line). The ablation study then includes it
- * automatically.
+ * <p><strong>Adding a New Feature:</strong>
+ * <ol>
+ *   <li>Add the feature name to {@code FeatureExtractor.SCALAR_NAMES}.</li>
+ *   <li>Associate the name with an existing group or create a single-line new group entry here.</li>
+ * </ol>
+ * The ablation pipeline automatically incorporates updated entries.</p>
  *
- * The families group the groups for the coarse ablation table of the paper (lexical,
- * punctuation, orthography, syntax, readability, character profile).
+ * <p>Groups are grouped into higher-level families ({@code lexical}, {@code punctuation},
+ * {@code orthography}, {@code syntax}, {@code readability}, {@code character}) for coarse ablation reporting.</p>
  */
 public enum FeatureGroup {
 
@@ -87,21 +88,29 @@ public enum FeatureGroup {
         }
     }
 
+    /**
+     * Helper varargs utility to construct a string array of feature names.
+     */
     private static String[] names(String... names) {
         return names;
     }
 
     /**
-     * Scalar feature slots (indices below FeatureExtractor.SCALAR_COUNT) in this
-     * group.
+     * Returns a copy of the scalar feature indices (below {@code FeatureExtractor.SCALAR_COUNT})
+     * assigned to this group.
+     *
+     * @return Array of integer scalar feature indices.
      */
     public int[] scalarSlots() {
         return scalarSlots.clone();
     }
 
     /**
-     * True when this group owns the profile block with that id ("char3", "pos2", "fw"):
-     * its pair measures and (full features) its bucket differences are removed/kept with the group.
+     * Checks if this group owns a specific profile block ID (e.g., {@code "char3"}, {@code "pos2"}, {@code "fw"}).
+     * <p>When owned, pair distance measures and bucket differences for the profile block are tethered to this group during ablation.</p>
+     *
+     * @param blockId The identifier string of the profile block.
+     * @return {@code true} if this group owns the specified block, {@code false} otherwise.
      */
     public boolean ownsBlock(String blockId) {
 
@@ -117,16 +126,30 @@ public enum FeatureGroup {
         }
     }
 
+    /**
+     * Returns a human-readable description of the feature group.
+     *
+     * @return String description.
+     */
     public String description() {
         return description;
     }
 
-    /** lexical, punctuation, orthography, syntax, readability, character, length */
+    /**
+     * Returns the feature family category (e.g., {@code lexical}, {@code punctuation}, {@code orthography}, {@code syntax}, {@code readability}, {@code character}, {@code length}).
+     *
+     * @return Feature family identifier string.
+     */
     public String family() {
         return family;
     }
 
-    /** The groups of one family. */
+    /**
+     * Retrieves all feature groups associated with a given family category.
+     *
+     * @param family Target feature family string.
+     * @return List of matching {@link FeatureGroup} instances.
+     */
     public static List<FeatureGroup> ofFamily(String family) {
 
         List<FeatureGroup> groups = new ArrayList<>();
@@ -138,7 +161,11 @@ public enum FeatureGroup {
         return groups;
     }
 
-    /** The family names, in the order they first appear. */
+    /**
+     * Collects all unique feature family names in order of their first appearance.
+     *
+     * @return Ordered list of distinct feature family name strings.
+     */
     public static List<String> families() {
 
         List<String> families = new ArrayList<>();

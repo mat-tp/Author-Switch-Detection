@@ -1,5 +1,7 @@
 package models;
 
+import util.ActivationFunctions;
+
 import java.util.List;
 import java.util.Random;
 import java.util.stream.IntStream;
@@ -249,7 +251,7 @@ public class LogisticRegression {
                 }
 
                 // calculating the probability score using the sigmoid function.
-                double prediction = sigmoid(zScore);
+                double prediction = ActivationFunctions.sigmoid(zScore);
                 // using the class wights to adjust and focus correctly based on Class-weights
                 // instead
                 double error = (prediction - truthValues[sample]) * sampleWeights[sample];
@@ -352,28 +354,11 @@ public class LogisticRegression {
                 zScore += featureMatrix[sample][feature] * weightsBiasArray[feature];
             }
 
-            probabilities[sample] = sigmoid(zScore);
+            probabilities[sample] = ActivationFunctions.sigmoid(zScore);
 
         });
 
         return probabilities;
-    }
-
-    /**
-     * Getting the predictions from batch processing (Array of probilities)
-     *
-     * @param probabilities
-     * @param threshold
-     * @return
-     */
-    public static int[] predict(double[] probabilities, double threshold) {
-        int[] predictions = new int[probabilities.length];
-
-        for (int i = 0; i < probabilities.length; i++) {
-            predictions[i] = probabilities[i] > threshold ? 1 : 0;
-        }
-
-        return predictions;
     }
 
     /**
@@ -386,90 +371,6 @@ public class LogisticRegression {
      */
     public static int predict(double[] features, double[] weightsBiasArray, double threshold) {
 
-        return predict(predictProbabilities(new double[][] { features }, weightsBiasArray), threshold)[0];
+        return predictProbabilities(new double[][] { features }, weightsBiasArray)[0] > threshold ? 1 : 0;
     }
-
-    /**
-     * Searches for the threshold with the best MACRO-F1 (the measure PAN 2026 ranks by).
-     * Use it on the VALIDATION data only, then keep this threshold for the test
-     * data.
-     *
-     * (The first version searched the F1 of class 1 only, which rewards a threshold that
-     * calls nearly everything a change; see findBestThreshold(..., false) for that one.)
-     *
-     * @param probabilities probabilities on the validation data
-     * @param truthValues   truth values of the validation data
-     * @return the best threshold
-     */
-    public static double findBestThreshold(double[] probabilities, int[] truthValues) {
-
-        return findBestThreshold(probabilities, truthValues, true);
-    }
-
-    /**
-     * @param macro true = best macro-F1 (both classes), false = best F1 of class 1 (change) only
-     */
-    public static double findBestThreshold(double[] probabilities, int[] truthValues, boolean macro) {
-
-        double bestThreshold = 0.5;
-        double bestScore = -1.0;
-
-        // 0.005 steps; of several thresholds with the same score the MIDDLE one is used, so the threshold
-        // does not sit on the very edge of a plateau
-        int firstBest = -1;
-        int lastBest = -1;
-
-        for (int step = 1; step < 200; step++) {
-
-            double threshold = step / 200.0;
-            int[] predictions = predict(probabilities, threshold);
-            double score = macro ? Metrics.calcMacroF1(predictions, truthValues)
-                    : Metrics.calcF1(predictions, truthValues);
-
-            if (score > bestScore + 1e-12) {
-                bestScore = score;
-                firstBest = step;
-                lastBest = step;
-            } else if (Math.abs(score - bestScore) <= 1e-12 && lastBest == step - 1) {
-                lastBest = step;
-            }
-        }
-
-        if (firstBest > 0) {
-            bestThreshold = (firstBest + lastBest) / 2.0 / 200.0;
-        }
-
-        return bestThreshold;
-    }
-
-    /**
-     * This method computes sigmoid activation
-     *
-     * @param scores These are the product of features (X) multiplied by their
-     *               weights
-     * @return double[] Array of predictions for array of scores
-     */
-    public static double[] sigmoid(double[] scores) {
-
-        double[] predictions = new double[scores.length];
-
-        for (int i = 0; i < scores.length; i++) {
-
-            predictions[i] = sigmoid(scores[i]);
-        }
-
-        return predictions;
-    }
-
-    /**
-     * calculates sigmoid activation function
-     *
-     * @param score linear score from multiplying weights with each feature
-     * @return probability Score
-     */
-    public static double sigmoid(double score) {
-
-        return 1 / (1 + Math.exp(-score));
-    }
-
 }

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Analyse')}"></head>
+<body>
+<div th:replace="~{fragments :: header}"></div>
+<main>
+    <div class="page-header">
+        <h1>Analyse a Document</h1>
+        <p class="subtitle">
+            Paste a document (one sentence per line) to see how hard it is, which stylometric features its sentences
+            have, how many authors it probably has, and exactly where the writing style changes.
+        </p>
+    </div>
+
+    <div class="alert alert-warning" th:if="${error}" th:text="${error}"></div>
+
+    <div class="card">
+        <div class="card-label">Input</div>
+        <form method="post" th:action="@{/analyse}" enctype="multipart/form-data">
+            <div class="form-row">
+                <div class="form-group grow">
+                    <label for="text">Paste text <span class="muted">(one sentence per line)</span></label>
+                    <textarea id="text" name="text" rows="9" placeholder="Paste sentences here, one per line..." th:text="${inputText}"></textarea>
+                </div>
+                <div class="form-group upload-col">
+                    <label for="file">Or upload a .txt file</label>
+                    <label class="file-drop" for="file">
+                        <span class="file-icon">↑</span>
+                        <span id="file-label">Choose file</span>
+                        <input type="file" id="file" name="file" accept=".txt"
+                            onchange="document.getElementById('file-label').textContent = this.files[0]?.name || 'Choose file'">
+                    </label>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Analyse →</button>
+        </form>
+    </div>
+
+    <div th:if="${analysis}">
+
+        <section class="mt">
+            <h2 class="section-title">Overview</h2>
+            <div class="task-summary">
+                <div class="task-card">
+                    <div class="task-card-label">Sentences</div>
+                    <span class="badge badge-info" th:text="${analysis.sentenceCount}"></span>
+                </div>
+                <div class="task-card" th:if="${analysis.hasDifficulty()}"
+                     title="Predicted by the difficulty detector from document-level statistics of the text.">
+                    <div class="task-card-label">Predicted difficulty</div>
+                    <span class="badge badge-info" th:text="${analysis.difficultyLevel}"></span>
+                </div>
+                <div class="task-card" th:if="${analysis.hasSegmentation()}"
+                     title="Detected segments. The same author can come back later in the text, so this is an upper bound for the number of authors.">
+                    <div class="task-card-label">Estimated authors</div>
+                    <span class="badge badge-info" th:text="${analysis.estimatedAuthors}"></span>
+                </div>
+                <div class="task-card" th:if="${analysis.hasSegmentation()}">
+                    <div class="task-card-label">Author changes</div>
+                    <span class="badge" th:classappend="${analysis.predictedChanges > 0} ? 'badge-warn' : 'badge-ok'"
+                          th:text="${analysis.predictedChanges} + ' / ' + (${analysis.sentenceCount} - 1)"></span>
+                </div>
+                <div class="task-card" th:if="${analysis.hasSegmentation()}"
+                     title="A change is predicted where the boundary score is above this value.">
+                    <div class="task-card-label">Threshold</div>
+                    <span class="badge badge-info" th:text="${#numbers.formatDecimal(analysis.threshold, 1, 3)}"></span>
+                </div>
+            </div>
+            <p class="muted small" th:if="${analysis.hasDifficulty()}">
+                Difficulty probabilities:
+                <span th:each="level, it : ${analysis.difficultyLevels}"
+                      th:text="${level} + ' ' + ${#numbers.formatDecimal(analysis.difficultyProbabilities[it.index], 1, 2)} + (${it.last} ? '' : ' | ')"></span>
+            </p>
+            <p class="muted small" th:if="${analysis.hasSegmentation()}" th:text="'Threshold: ' + ${analysis.thresholdSource}"></p>
+            <p class="muted small" th:if="${analysis.hasSegmentation() and analysis.modelDescription != null and !analysis.modelDescription.isEmpty()}"
+               th:text="'Retrieval model trained with: ' + ${analysis.modelDescription}"></p>
+            <div class="alert alert-warning" th:unless="${analysis.hasDifficulty()}"
+                 th:text="'Difficulty is not available: ' + ${analysis.difficultyProblem}"></div>
+            <div class="alert alert-warning" th:unless="${analysis.hasSegmentation()}"
+                 th:text="${analysis.segmentationProblem}"></div>
+        </section>
+
+        <section class="mt" th:if="${analysis.hasSegmentation()}">
+            <h2 class="section-title">Where the author changes
+                <span class="section-sub">(window of <span th:text="${analysis.window}"></span> sentence(s) on each side)</span></h2>
+            <p class="muted small">
+                Every dashed line is a position where the style difference between the sentences before and after it
+                is above the threshold. The text between two lines is one segment. The author estimate is the number of
+                segments, so an author who returns later is counted again.
+            </p>
+            <div class="segment-legend">
+                <span class="segment-chip" th:each="segment : ${analysis.segments}"
+                      th:classappend="'seg-' + ${(segment.number - 1) % 6}"
+                      th:text="'Segment ' + ${segment.number} + ': sentences ' + ${segment.firstSentence} + '–' + ${segment.lastSentence} + ' (' + ${segment.wordCount} + ' words)'"></span>
+            </div>
+            <div class="card segmented-text">
+                <th:block th:each="sentence : ${analysis.sentences}">
+                    <span class="sentence-line">
+                        <span class="muted small" th:text="${sentence.index} + '.'"></span>
+                        <span class="sentence" th:classappend="'seg-' + ${(sentence.segment - 1) % 6}" th:text="${sentence.text}"></span>
+                    </span>
+                    <span class="split-marker" th:if="${sentence.splitAfter}"
+                          th:text="'Author change between sentences ' + ${sentence.index} + ' and ' + (${sentence.index} + 1) + ' (score ' + ${#numbers.formatDecimal(sentence.scoreToNext, 1, 3)} + ')'"></span>
+                </th:block>
+            </div>
+
+            <h3 class="section-title mt">Boundary scores</h3>
+            <div class="change-strip">
+                <div class="cell" th:each="score, it : ${analysis.changeScores}"
+                     th:classappend="${score > analysis.threshold} ? 'switch' : ''"
+                     th:title="'between ' + (${it.index} + 1) + ' and ' + (${it.index} + 2) + ': ' + ${#numbers.formatDecimal(score, 1, 3)}">
+                    <div class="fill" th:style="'height:' + ${#numbers.formatDecimal(score * 100, 1, 0)} + '%'"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mt">
+            <h2 class="section-title">Raw stylometric features
+                <span class="section-sub">(extracted from the text alone, no trained model involved)</span></h2>
+            <div class="table-scroll">
+                <table>
+                    <thead>
+                    <tr><th>Feature</th><th>Mean</th><th>Std. dev.</th><th>Min</th><th>Max</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="summary : ${analysis.featureSummaries}">
+                        <td th:text="${summary.name}"></td>
+                        <td th:text="${#numbers.formatDecimal(summary.mean, 1, 3)}"></td>
+                        <td th:text="${#numbers.formatDecimal(summary.standardDeviation, 1, 3)}"></td>
+                        <td th:text="${#numbers.formatDecimal(summary.minimum, 1, 3)}"></td>
+                        <td th:text="${#numbers.formatDecimal(summary.maximum, 1, 3)}"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="section-title mt">Features of every sentence</h3>
+            <p class="muted small" th:if="${analysis.truncatedFeatures}"
+               th:text="'Only the first ' + ${analysis.featureRows.size()} + ' sentences are listed; the summary above covers all ' + ${analysis.sentenceCount} + '.'"></p>
+            <div class="feature-scroll">
+                <table>
+                    <thead>
+                    <tr><th>#</th><th th:each="name : ${analysis.featureNames}" th:text="${name}"></th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="row, it : ${analysis.featureRows}">
+                        <td th:text="${it.count}"></td>
+                        <td th:each="value : ${row}" th:text="${#numbers.formatDecimal(value, 1, 3)}"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</main>
+<div th:replace="~{fragments :: footer}"></div>
+</body>
+</html>

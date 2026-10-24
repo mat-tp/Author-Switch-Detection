@@ -50,7 +50,7 @@ public class ModelMetrics {
 
     private LocalDateTime trainedAt = LocalDateTime.now();
 
-    // --- feature-set / hyperparameter search + training curve, from RealTrainer ---
+    // Feature-set / hyperparameter search + training curve, from RealTrainer
     private String chosenConfig;       // e.g. "full features, learning rate=0.6"
     private String featureConfig;      // FeatureConfig.signature(): casing, n-gram orders, buckets, pair representation
     private String gridResultsCsv;     // every combination tried, one per line, ";" joined

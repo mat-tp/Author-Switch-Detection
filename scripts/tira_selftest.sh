@@ -1,47 +1,77 @@
-#!/bin/bash
-# Checks the TIRA runner end to end, WITHOUT Docker: compiles it, runs it on a small folder of problems with a
-# trained model, and checks that
-#   - one solution-problem-N.json exists per problem, with exactly (sentences - 1) values
-#   - the predictions are not one constant
-#   - with no model it stops with a non-zero exit code and writes nothing
+#!/usr/bin/env bash
+#
+# Tests the TIRA runner from start to finish without Docker.
+#
+# It compiles cli.TiraRunner, runs it twice and checks the results:
+#   1. Without a model the runner must exit with an error and write no output at all.
+#   2. With a trained model it must write one solution-problem-N.json per problem, each holding exactly
+#      (number of sentences - 1) values, and the predictions must not all be the same value.
 #
 # Usage: ./scripts/tira_selftest.sh [INPUT_DIR] [MODEL]
-#   INPUT_DIR defaults to dataset/mawsa26-pan-zenodo-DATA/easy/validation (problem-N.txt + truth-problem-N.json)
-#   MODEL     neural | logistic | tree | retrieval (default neural)
+#   INPUT_DIR  folder of problem-N.txt files; defaults to dataset/mawsa26-pan-zenodo-DATA/easy/validation
+#   MODEL      neural | logistic | tree | retrieval; defaults to neural
+#
+# JVM options are passed through the JAVA_OPTS environment variable. A trained model must exist
+# in data/models/ (see build.sh); the output is written to a temporary folder that is removed afterwards.
+
 set -u
-cd "$(dirname "$0")/.." || exit 1
+
+# shellcheck source=lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 INPUT="${1:-dataset/mawsa26-pan-zenodo-DATA/easy/validation}"
 MODEL="${2:-neural}"
-OUT="$PWD/out"
+
+asd_configure_java
+asd_require_jdk
+asd_enter_project_root
+asd_compile cli/TiraRunner.java
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-javac -encoding UTF-8 -sourcepath src/main/java -d "$OUT" src/main/java/TiraRunner.java || exit 1
-
-echo "--- 1. no model: must fail and write nothing"
-java -Dmodels.dir="$WORK/no-models/" -cp "$OUT" TiraRunner -i "$INPUT" -o "$WORK/out-none"
-if [ $? -eq 0 ] || [ -e "$WORK/out-none" ]; then echo "FAIL: ran without a model"; exit 1; fi
+echo
+echo "Check 1: without a model the runner must fail and write nothing"
+java -Dmodels.dir="$WORK/no-models/" -cp "$ASD_OUT" cli.TiraRunner -i "$INPUT" -o "$WORK/out-none"
+if [ $? -eq 0 ] || [ -e "$WORK/out-none" ]; then
+    asd_fail "the runner produced output without a model."
+fi
 echo "ok"
 
-echo "--- 2. with the $MODEL model"
-java ${JAVA_OPTS:-} -cp "$OUT" TiraRunner -i "$INPUT" -o "$WORK/out" --model "$MODEL" || { echo "FAIL: runner failed"; exit 1; }
+echo
+echo "Check 2: with the $MODEL model"
+java ${ASD_JAVA_OPTS[@]+"${ASD_JAVA_OPTS[@]}"} -cp "$ASD_OUT" cli.TiraRunner -i "$INPUT" -o "$WORK/out" --model "$MODEL" \
+    || asd_fail "the runner failed."
 
-python3 - "$INPUT" "$WORK/out" <<'PY'
-import json, glob, os, sys
-inp, out = sys.argv[1], sys.argv[2]
-n = ones = total = 0
-for f in sorted(glob.glob(os.path.join(inp, "**", "problem-*.txt"), recursive=True)):
-    rel = os.path.relpath(os.path.dirname(f), inp)
-    pid = os.path.basename(f)[len("problem-"):-4]
-    sol = os.path.join(out, rel, "solution-problem-%s.json" % pid)
-    assert os.path.exists(sol), "missing " + sol
-    sentences = [l for l in open(f, encoding="utf-8").read().splitlines() if l.strip()]
-    changes = json.load(open(sol))["changes"]
-    assert len(changes) == max(0, len(sentences) - 1), "wrong length in " + sol
-    n += 1; total += len(changes); ones += sum(changes)
-print("problems %d, pairs %d, predicted changes %d (%.1f%%)" % (n, total, ones, 100.0 * ones / max(1, total)))
-assert n > 0, "no problems"
-assert total < 50 or 0 < ones < total, "constant prediction"
+# The output is verified against the input folder: one file per problem, the right length, not a constant.
+python3 - "$INPUT" "$WORK/out" <<'PYTHON'
+import glob
+import json
+import os
+import sys
+
+input_dir, output_dir = sys.argv[1], sys.argv[2]
+problems = pairs = predicted_changes = 0
+
+for problem_file in sorted(glob.glob(os.path.join(input_dir, "**", "problem-*.txt"), recursive=True)):
+    relative_folder = os.path.relpath(os.path.dirname(problem_file), input_dir)
+    problem_id = os.path.basename(problem_file)[len("problem-"):-len(".txt")]
+    solution_file = os.path.join(output_dir, relative_folder, "solution-problem-%s.json" % problem_id)
+    assert os.path.exists(solution_file), "missing " + solution_file
+
+    with open(problem_file, encoding="utf-8") as handle:
+        sentences = [line for line in handle.read().splitlines() if line.strip()]
+    with open(solution_file, encoding="utf-8") as handle:
+        changes = json.load(handle)["changes"]
+
+    assert len(changes) == max(0, len(sentences) - 1), "wrong number of values in " + solution_file
+    problems += 1
+    pairs += len(changes)
+    predicted_changes += sum(changes)
+
+share = 100.0 * predicted_changes / max(1, pairs)
+print("problems %d, pairs %d, predicted changes %d (%.1f%%)" % (problems, pairs, predicted_changes, share))
+assert problems > 0, "no problems were found in the input folder"
+assert pairs < 50 or 0 < predicted_changes < pairs, "the predictions are a constant"
 print("OK")
-PY
+PYTHON

@@ -1,5 +1,7 @@
 package models;
 
+import util.Statistics;
+import cli.DifficultyMain;
 import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
@@ -9,38 +11,37 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import features.FunctionWords;
 
 /**
- * Tells from the TEXT of a document alone whether it looks like an easy, medium or hard document, so nobody has
- * to say which PAN dataset is being processed (the level is needed to choose the decision threshold, see LevelRouter).
+ * Heuristic detector classifying document text difficulty into {@code easy}, {@code medium}, or {@code hard} categories.
  *
- * What differs between the levels is how much the topic changes inside a document (easy: a lot, hard: not at all) and
- * how different neighbouring sentences look. So the detector turns a document into 16 numbers:
- * - size: number of sentences, mean and spread of the sentence length
- * - topic: cosine similarity of the content words (function words left out) of neighbouring sentences (mean, std, 10th /
- *   50th / 90th percentile), of every sentence to the document centroid, of all pairs; how much of the content
- *   vocabulary repeats between sentences
- * - style: distance between neighbouring sentences in a small standardised style vector (length, punctuation, capitals,
- *   digits, quotes ...), its spread, its 90th percentile and the distance to the document centroid
- * and a softmax regression (on the numbers and their squares) turns them into the probability of each level.
+ * <p>Enables automatic threshold selection in downstream routing pipelines (e.g., {@code LevelRouter})
+ * without requiring explicit dataset tier metadata.</p>
  *
- * Everything the detector needs is inside this object (it does not use the FeatureExtractor), so it can be saved to
- * data/models/difficulty.ser and used on its own.
+ * <p><strong>Feature Extraction Summary:</strong>
+ * Evaluates intra-document topic drift and adjacent-sentence stylistic variation across 16 core features:
+ * <ul>
+ *   <li><strong>Size Metrics:</strong> Sentence count, sentence length mean, and standard deviation.</li>
+ *   <li><strong>Topic Continuity:</strong> Cosine similarity across content words (excluding function words) for neighbouring sentences (mean, std, 10th/50th/90th percentiles), document centroid similarity, pairwise average similarity, and vocabulary repetition rates.</li>
+ *   <li><strong>Style Continuity:</strong> Euclidean distance between neighbouring sentences across a standardized 12-dimensional style vector (length, punctuation, capitalization, digits, quotes), variance, 90th percentile, and centroid distance.</li>
+ * </ul>
+ * Features and their squared terms are passed to a {@link SoftmaxRegression} classifier to predict category probabilities.</p>
  *
- * The labels come from the folder the training documents are in (easy / medium / hard). How well a level can be
- * recognised from the text is an empirical question: DifficultyMain prints the accuracy and the confusion matrix.
+ * <p><strong>Self-Contained Model:</strong> This class is fully self-contained and operates independently
+ * of {@code FeatureExtractor}, allowing direct serialization to disk (e.g., {@code data/models/difficulty.ser}).</p>
  */
 public class DifficultyDetector implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    /** Supported document difficulty classification levels. */
     public static final String[] LEVELS = { "easy", "medium", "hard" };
 
+    /** Descriptive string names corresponding to the 16 extracted document features. */
     public static final String[] FEATURE_NAMES = { "log_sentences", "mean_log_words", "std_log_words",
             "topic_cos_neighbour_mean", "topic_cos_neighbour_std", "topic_cos_neighbour_p10", "topic_cos_neighbour_p50",
             "topic_cos_neighbour_p90", "topic_cos_to_centroid_mean", "topic_cos_all_pairs_mean",
@@ -51,21 +52,24 @@ public class DifficultyDetector implements Serializable {
     private static final int STYLE_SIZE = 12;
     private static final int MAX_PAIR_SENTENCES = 150;
 
-    // standardisation of the style vector of a sentence (training sentences)
+    // Standardization parameters for sentence style vectors (fitted on training sentences)
     private final double[] styleMeans;
     private final double[] styleStds;
 
-    // standardisation of the document numbers (training documents)
+    // Standardization parameters for overall document feature rows (fitted on training documents)
     private final double[] documentMeans;
     private final double[] documentStds;
 
     private final SoftmaxRegression classifier;
 
-    /** one line: how the detector was trained (shown by the tools) */
+    /** Concise single-line summary of training configuration and parameters. */
     public final String description;
 
+    /**
+     * Private constructor to instantiate an initialized {@link DifficultyDetector}.
+     */
     private DifficultyDetector(double[] styleMeans, double[] styleStds, double[] documentMeans, double[] documentStds,
-            SoftmaxRegression classifier, String description) {
+                               SoftmaxRegression classifier, String description) {
         this.styleMeans = styleMeans;
         this.styleStds = styleStds;
         this.documentMeans = documentMeans;
@@ -74,18 +78,20 @@ public class DifficultyDetector implements Serializable {
         this.description = description;
     }
 
-    // ------------------------------------------------------------------
-    // Training
-    // ------------------------------------------------------------------
-
     /**
-     * @param documentsByLevel the training documents (each one a list of sentences) of every level; the
-     *                         map must hold the keys "easy", "medium" and "hard"
+     * Trains a new {@code DifficultyDetector} instance on labeled document corpora.
+     *
+     * @param documentsByLevel Map associating level keys ({@code "easy"}, {@code "medium"}, {@code "hard"}) with lists of document sentence lists.
+     * @param iterations Softmax regression gradient descent iterations.
+     * @param rate Learning rate parameter.
+     * @param l2 L2 regularization coefficient.
+     * @return Trained {@link DifficultyDetector} instance.
+     * @throws IllegalArgumentException If any level key lacks training documents.
      */
     public static DifficultyDetector train(Map<String, List<List<String>>> documentsByLevel, int iterations,
-            double rate, double l2) {
+                                           double rate, double l2) {
 
-        // 1. the style scaler, from all the training sentences
+        // 1. Fit sentence-level style feature scaler
         double[] sum = new double[STYLE_SIZE], sumSquares = new double[STYLE_SIZE];
         long count = 0;
         for (List<List<String>> documents : documentsByLevel.values()) {
@@ -106,7 +112,7 @@ public class DifficultyDetector implements Serializable {
             styleStds[j] = Math.sqrt(Math.max(1e-12, sumSquares[j] / Math.max(1, count) - styleMeans[j] * styleMeans[j]));
         }
 
-        // 2. the numbers of every document
+        // 2. Extract document-level feature rows
         List<double[]> rows = new ArrayList<>();
         List<Integer> labels = new ArrayList<>();
         for (int level = 0; level < LEVELS.length; level++) {
@@ -123,21 +129,12 @@ public class DifficultyDetector implements Serializable {
             }
         }
 
-        // 3. standardise them and fit the classifier
+        // 3. Standardize document feature vectors and fit softmax regression
         int features = FEATURE_NAMES.length;
-        double[] means = new double[features], stds = new double[features];
-        for (double[] row : rows) {
-            for (int j = 0; j < features; j++) {
-                means[j] += row[j] / rows.size();
-            }
-        }
-        for (double[] row : rows) {
-            for (int j = 0; j < features; j++) {
-                stds[j] += (row[j] - means[j]) * (row[j] - means[j]) / rows.size();
-            }
-        }
+        double[] means = Statistics.columnMeans(rows, 0, features);
+        double[] stds = Statistics.columnStandardDeviations(rows, 0, means);
         for (int j = 0; j < features; j++) {
-            stds[j] = Math.max(1e-9, Math.sqrt(stds[j]));
+            stds[j] = Math.max(1e-9, stds[j]);
         }
 
         double[][] x = new double[rows.size()][];
@@ -156,22 +153,34 @@ public class DifficultyDetector implements Serializable {
         return new DifficultyDetector(styleMeans, styleStds, means, stds, classifier, description);
     }
 
-    // ------------------------------------------------------------------
-    // Prediction
-    // ------------------------------------------------------------------
-
-    /** The probabilities of easy, medium, hard (in the order of LEVELS) for one document. */
+    /**
+     * Evaluates class probability distribution across {@code [easy, medium, hard]} for a given document.
+     *
+     * @param sentences List of sentence strings comprising the document.
+     * @return Double array of probabilities corresponding to {@link #LEVELS} order.
+     */
     public double[] probabilities(List<String> sentences) {
 
         double[] numbers = documentNumbers(sentences, styleMeans, styleStds);
         return classifier.probabilities(expand(standardise(numbers, documentMeans, documentStds)));
     }
 
-    /** The most probable level. */
+    /**
+     * Classifies a document into its most probable difficulty tier string name.
+     *
+     * @param sentences List of sentence strings comprising the document.
+     * @return String name of the predicted level ({@code "easy"}, {@code "medium"}, or {@code "hard"}).
+     */
     public String detect(List<String> sentences) {
         return LEVELS[argMax(probabilities(sentences))];
     }
 
+    /**
+     * Helper method to find the index of the maximum value in a probability array.
+     *
+     * @param p Array of double probability values.
+     * @return 0-based index of maximum value.
+     */
     public static int argMax(double[] p) {
         int best = 0;
         for (int i = 1; i < p.length; i++) {
@@ -182,21 +191,26 @@ public class DifficultyDetector implements Serializable {
         return best;
     }
 
-    /** The raw (not standardised) document numbers, for the report of how the levels differ. */
+    /**
+     * Extracts unstandardized raw feature values for reporting and diagnostics.
+     *
+     * @param sentences List of sentence strings comprising the document.
+     * @return Array of raw extracted document feature values.
+     */
     public double[] describe(List<String> sentences) {
         return documentNumbers(sentences, styleMeans, styleStds);
     }
 
+    /** Standardizes feature values into z-scores, clipping extreme outliers at [-5.0, 5.0]. */
     private static double[] standardise(double[] numbers, double[] means, double[] stds) {
         double[] z = new double[numbers.length];
         for (int j = 0; j < z.length; j++) {
-            // clipped, like the scalar features of the models: one odd document must not dominate
             z[j] = Math.max(-5.0, Math.min(5.0, (numbers[j] - means[j]) / stds[j]));
         }
         return z;
     }
 
-    /** The numbers and their squares: a little non-linearity for a linear classifier. */
+    /** Polynomial feature expansion appending squared feature values to allow non-linear decision boundaries. */
     private static double[] expand(double[] z) {
         double[] x = new double[z.length * 2];
         for (int j = 0; j < z.length; j++) {
@@ -206,16 +220,15 @@ public class DifficultyDetector implements Serializable {
         return x;
     }
 
-    // ------------------------------------------------------------------
-    // The numbers of a document
-    // ------------------------------------------------------------------
-
-    /** A topic vector: the content words of a sentence hashed to buckets (sorted indices and their values). */
+    /** Sparse topic representation storing sorted non-zero bucket indices and square-rooted frequency values. */
     private static final class Sparse {
         int[] index;
         double[] value;
     }
 
+    /**
+     * Computes the 16 raw document feature values from input sentences.
+     */
     static double[] documentNumbers(List<String> sentences, double[] styleMeans, double[] styleStds) {
 
         int n = sentences.size();
@@ -225,15 +238,15 @@ public class DifficultyDetector implements Serializable {
             return out;
         }
 
-        // sentence length
+        // Sentence length metrics
         double[] logWords = new double[n];
         for (int i = 0; i < n; i++) {
             logWords[i] = Math.log(1 + countWords(sentences.get(i)));
         }
-        out[1] = mean(logWords);
-        out[2] = std(logWords);
+        out[1] = Statistics.mean(logWords);
+        out[2] = Statistics.populationStandardDeviation(logWords);
 
-        // topic vectors
+        // Topic feature extraction
         Sparse[] topic = new Sparse[n];
         double[] centroid = new double[TOPIC_BUCKETS];
         int contentTokens = 0;
@@ -259,11 +272,11 @@ public class DifficultyDetector implements Serializable {
         for (int i = 0; i + 1 < n; i++) {
             neighbour[i] = cosine(topic[i], topic[i + 1]);
         }
-        out[3] = mean(neighbour);
-        out[4] = std(neighbour);
-        out[5] = percentile(neighbour, 0.10);
-        out[6] = percentile(neighbour, 0.50);
-        out[7] = percentile(neighbour, 0.90);
+        out[3] = Statistics.mean(neighbour);
+        out[4] = Statistics.populationStandardDeviation(neighbour);
+        out[5] = Statistics.percentile(neighbour, 0.10);
+        out[6] = Statistics.percentile(neighbour, 0.50);
+        out[7] = Statistics.percentile(neighbour, 0.90);
 
         double toCentroid = 0.0;
         for (int i = 0; i < n; i++) {
@@ -295,7 +308,7 @@ public class DifficultyDetector implements Serializable {
         }
         out[11] = sentencesOfWord.isEmpty() ? 0.0 : (double) repeated / sentencesOfWord.size();
 
-        // style vectors
+        // Style feature extraction
         double[][] style = new double[n][];
         double[] styleCentroid = new double[STYLE_SIZE];
         for (int i = 0; i < n; i++) {
@@ -314,9 +327,9 @@ public class DifficultyDetector implements Serializable {
             }
             styleNeighbour[i] = d / STYLE_SIZE;
         }
-        out[12] = mean(styleNeighbour);
-        out[13] = std(styleNeighbour);
-        out[14] = percentile(styleNeighbour, 0.90);
+        out[12] = Statistics.mean(styleNeighbour);
+        out[13] = Statistics.populationStandardDeviation(styleNeighbour);
+        out[14] = Statistics.percentile(styleNeighbour, 0.90);
 
         double toStyleCentroid = 0.0;
         for (int i = 0; i < n; i++) {
@@ -330,6 +343,7 @@ public class DifficultyDetector implements Serializable {
         return out;
     }
 
+    /** Helper method counting whitespace-delimited words in a sentence. */
     private static int countWords(String sentence) {
         int words = 0;
         boolean inside = false;
@@ -343,7 +357,7 @@ public class DifficultyDetector implements Serializable {
         return words;
     }
 
-    /** Lower-case words of letters (at least 3), without the function words. */
+    /** Extracts lowercase content words ($\ge 3$ characters) excluding closed-class function words. */
     private static List<String> contentWords(String sentence) {
 
         List<String> words = new ArrayList<>();
@@ -362,6 +376,7 @@ public class DifficultyDetector implements Serializable {
         return words;
     }
 
+    /** Hashes content words into a normalized sparse topic distribution vector. */
     private static Sparse topicVector(List<String> words) {
 
         java.util.TreeMap<Integer, Double> counts = new java.util.TreeMap<>();
@@ -377,7 +392,7 @@ public class DifficultyDetector implements Serializable {
         int k = 0;
         for (Map.Entry<Integer, Double> e : counts.entrySet()) {
             s.index[k] = e.getKey();
-            s.value[k] = Math.sqrt(e.getValue()); // square root of the count: one repeated word does not dominate
+            s.value[k] = Math.sqrt(e.getValue());
             norm += s.value[k] * s.value[k];
             k++;
         }
@@ -388,6 +403,7 @@ public class DifficultyDetector implements Serializable {
         return s;
     }
 
+    /** Cosine similarity of two unit-length sparse topic vectors (the sparse counterpart of {@code VectorMath.dot}). */
     private static double cosine(Sparse a, Sparse b) {
 
         double dot = 0.0;
@@ -403,10 +419,10 @@ public class DifficultyDetector implements Serializable {
                 j++;
             }
         }
-        return dot; // both are unit vectors (or empty)
+        return dot;
     }
 
-    /** 12 simple, cheap numbers about how a sentence is written (standardised with the training sentences). */
+    /** Computes a 12-dimensional sentence-level style feature vector. */
     static double[] styleVector(String s) {
 
         int chars = Math.max(1, s.length());
@@ -443,44 +459,16 @@ public class DifficultyDetector implements Serializable {
                 (double) commas / words, 100.0 * quotes / chars, 100.0 * apostrophes / chars,
                 letters == 0 ? 0.0 : (double) upper / letters, (double) digits / chars, (double) punctuation / chars,
                 (double) excitement / words, (last == '.' || last == '!' || last == '?' || last == '"'
-                        || last == '”') ? 1.0 : 0.0,
+                || last == '”') ? 1.0 : 0.0,
                 (Character.isUpperCase(first) || first == '"' || first == '“') ? 1.0 : 0.0 };
     }
 
-    // ------------------------------------------------------------------
-    // Small statistics
-    // ------------------------------------------------------------------
-
-    private static double mean(double[] v) {
-        double s = 0.0;
-        for (double x : v) {
-            s += x;
-        }
-        return v.length == 0 ? 0.0 : s / v.length;
-    }
-
-    private static double std(double[] v) {
-        double m = mean(v);
-        double s = 0.0;
-        for (double x : v) {
-            s += (x - m) * (x - m);
-        }
-        return v.length == 0 ? 0.0 : Math.sqrt(s / v.length);
-    }
-
-    private static double percentile(double[] v, double p) {
-        double[] sorted = v.clone();
-        Arrays.sort(sorted);
-        if (sorted.length == 0) {
-            return 0.0;
-        }
-        return sorted[(int) Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1) + 0.5))];
-    }
-
-    // ------------------------------------------------------------------
-    // Saving
-    // ------------------------------------------------------------------
-
+    /**
+     * Serializes the current detector instance to disk at the specified path.
+     *
+     * @param path Target file destination path string.
+     * @throws IOException If file creation or write stream operation fails.
+     */
     public void save(String path) throws IOException {
         Path p = Paths.get(path);
         if (p.getParent() != null) {
@@ -491,7 +479,13 @@ public class DifficultyDetector implements Serializable {
         }
     }
 
-    /** Loads a detector saved by this class (the user's own file; a file of an older version is refused with a message). */
+    /**
+     * Deserializes a stored {@code DifficultyDetector} instance from disk.
+     *
+     * @param path Source model file path string.
+     * @return Deserialized {@link DifficultyDetector} instance.
+     * @throws IOException If file access fails or serialized version mismatches current class layout.
+     */
     public static DifficultyDetector load(String path) throws IOException {
         try (ObjectInputStream in = new ObjectInputStream(Files.newInputStream(Paths.get(path)))) {
             return (DifficultyDetector) in.readObject();

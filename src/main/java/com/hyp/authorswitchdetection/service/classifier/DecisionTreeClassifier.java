@@ -3,7 +3,7 @@ package com.hyp.authorswitchdetection.service.classifier;
 import com.hyp.authorswitchdetection.ml.MlModelLoader;
 import com.hyp.authorswitchdetection.ml.PairFeatureUtil;
 import models.DecisionTree;
-import models.ModelStore;
+import persistence.ModelStore;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -18,7 +18,7 @@ import java.util.Locale;
  * the questions the tree asked.
  */
 @Component
-public class DecisionTreeClassifier extends PairModelClassifier {
+public class DecisionTreeClassifier extends StoredModelClassifier {
 
     public DecisionTreeClassifier(MlModelLoader modelLoader) {
         super(modelLoader, MlModelLoader.TREE);

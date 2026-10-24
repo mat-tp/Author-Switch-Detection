@@ -2,8 +2,6 @@ package com.hyp.authorswitchdetection.ml;
 
 import features.FeatureExtractor;
 
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Turning raw sentences into the SAME feature vector a model was trained on.
@@ -26,24 +24,6 @@ public final class PairFeatureUtil {
     /** Pair feature vector of two sentences, ready for a loaded model. */
     public static double[] pairFeatures(FeatureExtractor extractor, String sentence1, String sentence2) {
         return extractor.pairVector(extractor.getFeatures(sentence1), extractor.getFeatures(sentence2));
-    }
-
-    /**
-     * The pair vectors of all neighbouring sentences of a document: every sentence is extracted ONCE
-     * (and not twice, as the sentence is in two pairs).
-     */
-    public static double[][] neighbourPairFeatures(FeatureExtractor extractor, List<String> sentences) {
-
-        List<double[]> raw = new ArrayList<>();
-        for (String sentence : sentences) {
-            raw.add(extractor.getFeatures(sentence));
-        }
-
-        double[][] matrix = new double[Math.max(0, sentences.size() - 1)][];
-        for (int i = 0; i < matrix.length; i++) {
-            matrix[i] = extractor.pairVector(raw.get(i), raw.get(i + 1));
-        }
-        return matrix;
     }
 
     /** The names of the pair vector columns of this extractor. */

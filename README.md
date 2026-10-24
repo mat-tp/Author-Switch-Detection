@@ -92,18 +92,28 @@ Author-Switch-Detection/
 │   ├── build.sh / build.bat          train the models, self-checks
 │   ├── ablation.sh / ablation.bat    the ablation study
 │   ├── tira_selftest.sh              checks the TIRA runner
+│   ├── lib/common.sh, common.bat     helpers shared by the scripts (JDK lookup, paths, compilation)
 │   ├── make_pseudo_mawsa.py          small stand-in data to test the code
 │   └── manuscript/, slides/          paper and slides
 ├── src/main/java/
-│   ├── Main.java                     train tree / logistic / neural
-│   ├── Ablation.java, AblationReport.java   the ablation study and its report
-│   ├── RetrievalMain.java            the retrieval model
-│   ├── DifficultyMain.java           difficulty detector + threshold per level (train / calibrate / evaluate)
-│   ├── TiraRunner.java               PAN command line (-i / -o)
-│   ├── SelfCheck.java                39 checks
-│   ├── data/                         dataset loading, sentence pairs, matrices
+│   ├── cli/                          command line entry points
+│   │   ├── Main.java                 train tree / logistic / neural
+│   │   ├── RetrievalMain.java        train and evaluate the retrieval model
+│   │   ├── DifficultyMain.java       difficulty detector + threshold per level (train / calibrate / evaluate)
+│   │   ├── Ablation.java, AblationReport.java   the ablation study and its report
+│   │   ├── TiraRunner.java           PAN command line (-i / -o)
+│   │   └── SelfCheck.java            45 checks
+│   ├── pipeline/                     the training pipelines and their defaults
+│   │   ├── ModelDefaults.java        every hyper-parameter of the three pair models, with the evidence for it
+│   │   └── RetrievalPipeline.java    retrieval training, window and threshold selection
+│   ├── data/                         dataset loading (incl. author counts), truth reasoning, triplet sampling
 │   ├── features/                     feature extraction, groups, settings, POS tagger
-│   ├── models/                       the models, metrics, saving
+│   ├── models/                       the trained models (these classes are serialised, see the note below)
+│   ├── evaluation/                   metrics, confusion matrix, threshold search, retrieval and author-count evaluation
+│   ├── analysis/                     document segmentation and the author-count estimate
+│   ├── routing/                      difficulty-dependent thresholds
+│   ├── persistence/                  saving and loading models
+│   ├── util/                         shared maths: statistics, vectors, activations, distances, boundary scores
 │   └── com/hyp/authorswitchdetection/    the Spring Boot web app
 ├── src/main/resources/               web pages, style, application.properties
 ├── data/models/                      trained models (created by training)
@@ -125,7 +135,7 @@ dataset/
 ```
 
 If a lexicon file is missing, the program prints `File not found` and that feature becomes 0, so check the
-log. Java 21 (a full JDK) is needed. Maven is needed only for the web app.
+log. Java 25 (a full JDK) is needed. Maven is needed only for the web app.
 
 ## 7. How to run
 
@@ -148,8 +158,10 @@ saved models. Calibrating needs **no retraining**: it only chooses the threshold
 ```
 
 The prediction code (web app and TIRA) then detects the level of each document and uses that level's threshold. Without
-these two files it falls back to the pooled threshold and prints why. The accuracy of the detector on the PAN data is
-only known after `evaluate` has been run; medium against hard may be hard to tell apart.
+these two files it falls back to the pooled threshold and prints why. On the PAN validation data (held-out half) the
+detector is right for 88.8% of the documents; easy and hard are the pair that is mixed up, and medium is almost always found
+(it is separated mostly by the number of sentences, see `docs/RESEARCH.md` section 8a). When TIRA gives the system one level
+at a time, use `--difficulty auto-dataset`: it chose the right level for all three folders and lost nothing against knowing the level.
 
 Models are saved in `data/models/` and the scores in `data/model-metrics.json`. Options go in `JAVA_OPTS`:
 
@@ -180,8 +192,11 @@ JAVA_OPTS="-Dquick=true -Dsubset=50000" ./scripts/ablation.sh       # trial run 
 ```
 
 Open `http://localhost:8080` and log in. The first run downloads Maven and the libraries, so it needs
-internet. Pages: Predict, Train, Results, Inspect, Retrieve, Ablation, Explore.
+internet. Pages: Analyse, Predict, Train, Results, Inspect, Retrieve, Ablation, Explore.
 
+- **Analyse** takes one document and shows its predicted difficulty (difficulty detector), the raw stylometric
+  features of every sentence (computed without any trained model), the estimated number of authors, and the text with
+  every predicted author change marked, using the retrieval model's change scores and the threshold of the detected level.
 - No model is bundled. Train one first (Train page or section 7.1); until then Predict says so.
 - A default account `admin` / `admin123` is created on first start. **Change it** in
   `application.properties` (`app.admin.username`, `app.admin.password`) before anyone else can reach the app.
@@ -206,6 +221,30 @@ overrides everything. The detector (`difficulty.ser`) and `NAME.ser.levels` are 
 - Run the neural-network ablation as its own process (`JAVA_OPTS="-Dmodels=neural" ./scripts/ablation.sh`); in the first
   run on a small machine 15 of its runs ran out of memory.
 - Use `-Dsubset=50000` for a trial, and `nohup` or `tmux` so a closed terminal does not stop a long run.
+
+### 7.5 Design notes
+
+- **Author counts in retrieval training.** The truth files give the number of authors and the change flags of every
+  document. The retrieval model uses them to choose triplets (`data/TripletSampler.java`, `data/SegmentAuthorship.java`):
+  segments next to each other always differ in author, so they give hard negatives; with two authors the alternation
+  fixes which non-adjacent segments share an author; when the number of authors equals the number of segments every
+  segment differs. Pairs whose relation cannot be derived are never used. Switch it off with `-Dret.authorcounts=false`;
+  `-Dret.farpositive` sets the share of positives taken from a non-adjacent segment of the same author. On the small
+  stand-in data this sampling did not show a gain over adjacent segments only, so it is not yet shown to help on the
+  PAN data; compare both settings after retraining.
+- **Estimated number of authors.** A change is predicted where the retrieval change score is above the threshold of
+  the detected level; the number of authors is reported as the number of resulting segments (changes + 1), see
+  `analysis/DocumentSegmentation.java`. No clustering is involved, so an author who returns is counted again and the
+  estimate is an upper bound in that case. `RetrievalMain` prints the exact-match rate and the mean error against the truth files.
+- **Shared code.** Maths lives in `util/`, metrics and threshold search in `evaluation/`; the web app and the command
+  line call the same classes. The `models` and `features` packages keep their names because saved models (`*.ser`) store
+  class names; renaming them would make every saved model unreadable until retrained.
+- **Hyper-parameters** are in `pipeline/ModelDefaults.java`, with the evidence for each value in its Javadoc. They come from
+  the existing neural-network sweeps (validation macro-F1, noise floor about 0.002): the L2 penalty is now 0 (clearly best) and the hidden layers
+  are `{32, 16}` (all sizes scored the same, the small one trains about ten times faster). The decision tree and
+  logistic regression were never part of a parameter sweep, so their values are unchanged (depth 5; learning rate 0.6, run until the loss stalls).
+  Run the tree and logistic sweeps in `scripts/ablation.sh` to tune them. The new values were chosen one at a time and have not
+  been trained together, so retrain and compare on validation before relying on them.
 
 ## 8. Conclusion
 

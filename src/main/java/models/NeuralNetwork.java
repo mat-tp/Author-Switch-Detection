@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.stream.IntStream;
 
-import static models.LogisticRegression.sigmoid;
+import static util.ActivationFunctions.sigmoid;
 
 public class NeuralNetwork implements Serializable {
 
@@ -710,7 +710,7 @@ public class NeuralNetwork implements Serializable {
      */
     public int predict(double[] features, double threshold) {
 
-        return LogisticRegression.predict(predictProbabilities(new double[][] { features }), threshold)[0];
+        return predictProbabilities(new double[][] { features })[0] > threshold ? 1 : 0;
     }
 
     /**

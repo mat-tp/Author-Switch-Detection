@@ -1,249 +1,113 @@
-
 @echo off
 setlocal
+rem ---------------------------------------------------------------------------
+rem Trains and evaluates the models of the project (Windows; build.sh is the
+rem Linux and macOS version).
+rem
+rem Usage:
+rem   scripts\build.bat              train the decision tree, logistic regression and neural network
+rem   scripts\build.bat tree         train one pair model: tree, logistic, neural
+rem   scripts\build.bat retrieval    train the retrieval (embedding) model
+rem   scripts\build.bat difficulty   train the difficulty detector (data\models\difficulty.ser)
+rem   scripts\build.bat calibrate    choose the threshold of every difficulty level for every saved
+rem                                  model (NAME.ser.levels); needs no retraining
+rem   scripts\build.bat evaluate     compare pooled, true-level and detected-level thresholds on the
+rem                                  held-out half
+rem   scripts\build.bat check        run the self-checks (gradients, metrics, features, save and load)
+rem   scripts\build.bat clean        delete the compiled classes in out\ and stop
+rem
+rem What a training run does (cli.Main, cli.RetrievalMain):
+rem   - It trains on all three difficulty levels together, the same way the web app's Train page does.
+rem   - The feature settings come from features\FeatureConfig.java and can be changed with -D options,
+rem     for example -Dchar.n=1,2,3 -Dchar.buckets=512 -Dcasing=lower.
+rem   - The decision threshold is tuned on one half of the PAN validation split. The final numbers
+rem     are measured on the other half, which the model never saw during training or threshold selection.
+rem   - The model is saved under data\models\ and a row is appended to data\model-metrics.json.
+rem     The web app reads both, so the run also shows up on its Results page.
+rem
+rem JVM options are passed through the JAVA_OPTS environment variable:
+rem   set JAVA_OPTS=-Xmx16g
+rem   set JAVA_OPTS=-Dsubset=50000          quick trial run on a subset of the training pairs
+rem   set JAVA_OPTS=-Ddifficulty=hard       train and score one difficulty level only
+rem
+rem The JDK is taken from ASD_JDK_HOME (default C:\jdk-25 when that folder exists), otherwise
+rem from JAVA_HOME or the PATH.
+rem ---------------------------------------------------------------------------
 
-REM Tshephang Matlala
-REM HYP TRAINING ML MODELS
-REM Trains and compares all models using javac/java.
-REM
-REM Usage:
-REM   scripts\build.bat
-REM   scripts\build.bat all
-REM   scripts\build.bat tree
-REM   scripts\build.bat logistic
-REM   scripts\build.bat neural
-REM   scripts\build.bat clean
+set "COMMON=%~dp0lib\common.bat"
 
-cls
+set "TARGET=%~1"
+if not defined TARGET set "TARGET=all"
 
-REM ============================================================
-REM JAVA CONFIGURATION - PRESERVED
-REM ============================================================
-
-set "JAVA_HOME_OVERRIDE=C:\jdk-25"
-
-if exist "%JAVA_HOME_OVERRIDE%\bin\javac.exe" (
-    set "JAVA_HOME=%JAVA_HOME_OVERRIDE%"
-    set "PATH=%JAVA_HOME%\bin;%PATH%"
+for %%T in (all tree logistic neural retrieval difficulty calibrate evaluate check clean) do (
+    if /I "%TARGET%"=="%%T" goto :target_valid
 )
-
-echo.
-echo        HYP - Project
-echo.
-echo JAVA_HOME:
-if defined JAVA_HOME (
-    echo %JAVA_HOME%
-) else (
-    echo ^<not set, relying on PATH^>
-)
-echo.
-
-REM ============================================================
-REM MODEL SELECTION
-REM ============================================================
-
-set "MODEL=%~1"
-if not defined MODEL set "MODEL=all"
-
-if /I "%MODEL%"=="clean" goto CLEAN
-
-if /I "%MODEL%"=="all" goto MODEL_VALID
-if /I "%MODEL%"=="tree" goto MODEL_VALID
-if /I "%MODEL%"=="logistic" goto MODEL_VALID
-if /I "%MODEL%"=="neural" goto MODEL_VALID
-if /I "%MODEL%"=="retrieval" goto MODEL_VALID
-if /I "%MODEL%"=="difficulty" goto MODEL_VALID
-if /I "%MODEL%"=="calibrate" goto MODEL_VALID
-if /I "%MODEL%"=="evaluate" goto MODEL_VALID
-if /I "%MODEL%"=="check" goto MODEL_VALID
-
-echo ERROR: Unknown model "%MODEL%"
+echo ERROR: unknown target "%TARGET%"
 echo Use: all ^| tree ^| logistic ^| neural ^| retrieval ^| difficulty ^| calibrate ^| evaluate ^| check ^| clean
-goto ERROR
+goto :failed
 
-:MODEL_VALID
+:target_valid
 
-REM ============================================================
-REM JAVA CHECKS
-REM ============================================================
+rem "clean" needs neither Java nor a compilation.
+if /I "%TARGET%"=="clean" goto :clean
 
-echo ~~~ Checking Java ~~~
+call "%COMMON%" :configure_java
+call "%COMMON%" :require_jdk
+if errorlevel 1 goto :failed
+call "%COMMON%" :enter_project_root
+if errorlevel 1 goto :failed
+call "%COMMON%" :warn_if_dataset_missing
 
-where javac >nul 2>&1
+if not exist "%ASD_MODELS_DIR%\" mkdir "%ASD_MODELS_DIR%"
+call "%COMMON%" :clean_classes
+if errorlevel 1 goto :failed
+call "%COMMON%" :compile cli\Main.java cli\RetrievalMain.java cli\DifficultyMain.java cli\SelfCheck.java cli\TiraRunner.java
+if errorlevel 1 goto :failed
+
+rem Every target is one entry point of the cli package. The pair models share
+rem cli.Main and receive their name as the argument.
+set "ENTRY=cli.Main"
+set "ENTRY_ARGS=%TARGET%"
+if /I "%TARGET%"=="retrieval"  set "ENTRY=cli.RetrievalMain" & set "ENTRY_ARGS="
+if /I "%TARGET%"=="difficulty" set "ENTRY=cli.DifficultyMain" & set "ENTRY_ARGS=train"
+if /I "%TARGET%"=="calibrate"  set "ENTRY=cli.DifficultyMain" & set "ENTRY_ARGS=calibrate"
+if /I "%TARGET%"=="evaluate"   set "ENTRY=cli.DifficultyMain" & set "ENTRY_ARGS=evaluate"
+if /I "%TARGET%"=="check"      set "ENTRY=cli.SelfCheck"      & set "ENTRY_ARGS="
+
+echo.
+echo Running: %TARGET%
+echo.
+java %JAVA_OPTS% -cp "%ASD_OUT%" %ENTRY% %ENTRY_ARGS%
 if errorlevel 1 (
-    echo ERROR: javac could not be found.
-    echo Install a JDK 17+ or check JAVA_HOME_OVERRIDE and PATH.
-    goto ERROR
-)
-
-where java >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: java could not be found.
-    goto ERROR
-)
-
-echo Java compiler version:
-javac -version
-if errorlevel 1 goto ERROR
-
-echo.
-echo Java runtime version:
-java -version
-if errorlevel 1 goto ERROR
-
-echo.
-echo Java is ready.
-echo.
-
-REM ============================================================
-REM PROJECT ROOT
-REM ============================================================
-
-cd /d "%~dp0.."
-if errorlevel 1 (
-    echo ERROR: Could not move to project directory.
-    goto ERROR
-)
-
-echo Project directory:
-cd
-echo.
-
-REM ============================================================
-REM PROJECT PATHS
-REM ============================================================
-
-set "SRC=%CD%\src\main\java"
-set "OUT=%CD%\out"
-set "MODELS_DIR=%CD%\data\models"
-set "METRICS_FILE=%CD%\data\model-metrics.json"
-set "DATASET_DIR=%CD%\dataset\mawsa26-pan-zenodo-DATA"
-
-if not exist "%SRC%\Main.java" (
-    echo ERROR: Main.java not found at:
-    echo %SRC%\Main.java
-    goto ERROR
-)
-
-REM ============================================================
-REM CLEAN PREVIOUS COMPILED CLASSES
-REM ============================================================
-
-echo          ^> Cleaning previously compiled classes
-echo.
-
-if exist "%OUT%" (
-    del /S /Q "%OUT%\*.class" >nul 2>&1
-) else (
-    mkdir "%OUT%"
-    if errorlevel 1 goto ERROR
-)
-
-if not exist "%MODELS_DIR%" mkdir "%MODELS_DIR%"
-if not exist "%MODELS_DIR%" (
-    echo ERROR: Could not create models directory.
-    goto ERROR
-)
-
-echo Cleaning complete.
-echo.
-
-REM ============================================================
-REM DATASET CHECK
-REM ============================================================
-
-if not exist "%DATASET_DIR%\" (
-    echo WARNING: Dataset folder not found at:
-    echo   %DATASET_DIR%
-    echo Training may fail because no training data is loaded.
-    echo Place the MAWSA dataset there first.
-    echo.
-)
-
-REM ============================================================
-REM COMPILE
-REM ============================================================
-
-echo          ^> Compiling Java Source Code
-echo.
-
-javac -encoding UTF-8 -sourcepath "%SRC%" -d "%OUT%" "%SRC%\Main.java" "%SRC%\RetrievalMain.java" "%SRC%\SelfCheck.java" "%SRC%\TiraRunner.java" "%SRC%\DifficultyMain.java"
-
-if errorlevel 1 (
-    echo ERROR: Compilation failed.
-    goto ERROR
+    echo ERROR: the program stopped with an error.
+    goto :failed
 )
 
 echo.
-echo Compilation successful.
-echo.
+echo Finished: %TARGET%
+if /I "%TARGET%"=="check"    goto :succeeded
+if /I "%TARGET%"=="evaluate" goto :succeeded
+echo Trained models and thresholds are under: %ASD_MODELS_DIR%
+echo Metrics are appended to:                 %ASD_METRICS_FILE%
+echo The web app's Results page shows them.
+goto :succeeded
 
-REM ============================================================
-REM RUN MODEL(S)
-REM ============================================================
-
-echo          ^> Running ML Model(s): %MODEL%
-echo.
-
-if /I "%MODEL%"=="retrieval" (
-    java %JAVA_OPTS% -cp "%OUT%" RetrievalMain
-) else if /I "%MODEL%"=="difficulty" (
-    java %JAVA_OPTS% -cp "%OUT%" DifficultyMain train
-) else if /I "%MODEL%"=="calibrate" (
-    java %JAVA_OPTS% -cp "%OUT%" DifficultyMain calibrate
-) else if /I "%MODEL%"=="evaluate" (
-    java %JAVA_OPTS% -cp "%OUT%" DifficultyMain evaluate
-) else if /I "%MODEL%"=="check" (
-    java %JAVA_OPTS% -cp "%OUT%" SelfCheck
-) else (
-    java %JAVA_OPTS% -cp "%OUT%" Main "%MODEL%"
+:clean
+call "%COMMON%" :enter_project_root
+if errorlevel 1 goto :failed
+echo Removing %ASD_OUT%
+if exist "%ASD_OUT%\" rd /s /q "%ASD_OUT%"
+if exist "%ASD_OUT%\" (
+    echo ERROR: could not remove the out folder.
+    goto :failed
 )
-
-if errorlevel 1 (
-    echo ERROR: Program execution failed.
-    goto ERROR
-)
-
-echo.
-echo        ^> ML Training Finished
-echo        ^> Trained model(s) saved under: %MODELS_DIR%
-echo        ^> Metrics appended to:          %METRICS_FILE%
-echo        ^> Open the web app Results page to view the results.
-echo.
-
-goto SUCCESS
-
-REM ============================================================
-REM CLEAN COMMAND
-REM ============================================================
-
-:CLEAN
-
-cd /d "%~dp0.."
-if errorlevel 1 goto ERROR
-
-echo Removing "%CD%\out" ...
-if exist "out" rd /s /q "out"
-
-if exist "out" (
-    echo ERROR: Could not remove out directory.
-    goto ERROR
-)
-
 echo Done.
-goto SUCCESS
+goto :succeeded
 
-REM ============================================================
-REM EXIT HANDLING
-REM ============================================================
-
-:ERROR
+:failed
 echo.
-echo              ^> BUILD FAILED
-echo.
-endlocal
+echo BUILD FAILED
 exit /b 1
 
-:SUCCESS
-endlocal
+:succeeded
 exit /b 0

@@ -14,8 +14,11 @@ import features.TextUtils;
 
 public class DatasetLoader {
 
-    // fixed seed, so the validation / testing halves are the same on every run
+    /** Fixed seed, so the validation and testing halves are the same on every run. */
     private static final long SPLIT_SEED = 42L;
+
+    private static final java.util.regex.Pattern AUTHORS_ENTRY =
+            java.util.regex.Pattern.compile("\"authors\"\\s*:\\s*(\\d+)");
 
     /** Which problems (documents) of a split are loaded. */
     public enum Part {
@@ -37,18 +40,27 @@ public class DatasetLoader {
         public final List<String> sentences;
         public final int[] changes;
 
+        /** Number of authors from the truth file, 0 when the file does not say. */
+        public final int authors;
+
         public Problem(String id, String difficulty, List<String> sentences, int[] changes) {
+            this(id, difficulty, sentences, changes, 0);
+        }
+
+        public Problem(String id, String difficulty, List<String> sentences, int[] changes, int authors) {
             this.id = id;
             this.difficulty = difficulty;
             this.sentences = sentences;
             this.changes = changes;
+            this.authors = authors;
         }
 
         /**
          * Segment number of every sentence: it goes up by one at every change. Two sentences with the
-         * same segment number were written by the same author without another author in between
-         * (the dataset only says how MANY authors there are, not which segment belongs to which, so
-         * two different segments can still be the same author).
+         * same segment number were written by the same author without another author in between.
+         * The truth only says how many authors there are, not which segment belongs to which author, so two
+         * different segments can still have the same author; {@link SegmentAuthorship} says when the
+         * truth settles that.
          */
         public int[] segments() {
 
@@ -283,7 +295,8 @@ public class DatasetLoader {
         try {
 
             List<String> sentences = extractSentences(Files.readString(problemPath), casing);
-            int[] changes = extractChanges(Files.readString(truthPath));
+            String truth = Files.readString(truthPath);
+            int[] changes = extractChanges(truth);
 
             // Check that the number of boundaries matches.
             if (sentences.size() - 1 != changes.length) {
@@ -291,7 +304,7 @@ public class DatasetLoader {
                 return null;
             }
 
-            return new Problem(problemId, difficulty, sentences, changes);
+            return new Problem(problemId, difficulty, sentences, changes, extractAuthors(truth));
 
         } catch (IOException e) {
 
@@ -369,5 +382,17 @@ public class DatasetLoader {
         }
 
         return changes;
+    }
+
+    /**
+     * Reads the number of authors from the truth JSON.
+     *
+     * @param truth the content of a truth file, for example {@code {"authors": 4, "changes": [0, 1, 1]}}
+     * @return the number of authors, 0 when the file has no usable 'authors' entry
+     */
+    public static int extractAuthors(String truth) {
+
+        java.util.regex.Matcher matcher = AUTHORS_ENTRY.matcher(truth);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 }

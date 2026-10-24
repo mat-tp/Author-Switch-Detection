@@ -1,5 +1,7 @@
 package models;
 
+import util.BoundaryScores;
+import util.VectorMath;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,58 +49,35 @@ public class RetrievalModel implements Serializable {
         return network.embedAll(inputs(extractor, sentences));
     }
 
-    /** Cosine similarity of every two sentences, sentences.size() x sentences.size(). */
+    /**
+     * Cosine similarity of every two sentences.
+     *
+     * @param embeddings unit-length embeddings, one per sentence
+     * @return a symmetric matrix of size sentences x sentences
+     */
     public static double[][] similarityMatrix(double[][] embeddings) {
 
         int n = embeddings.length;
         double[][] matrix = new double[n][n];
         for (int i = 0; i < n; i++) {
             for (int j = i; j < n; j++) {
-                double sum = 0.0;
-                for (int k = 0; k < embeddings[i].length; k++) {
-                    sum += embeddings[i][k] * embeddings[j][k];
-                }
-                matrix[i][j] = sum;
-                matrix[j][i] = sum;
+                double similarity = VectorMath.dot(embeddings[i], embeddings[j]);
+                matrix[i][j] = similarity;
+                matrix[j][i] = similarity;
             }
         }
         return matrix;
     }
 
     /**
-     * The score of a change between every two neighbouring sentences (sentences.size() - 1 numbers, 0 to 1,
-     * high = different style), computed like RetrievalEvaluator.switchScores for one document.
+     * The score of a change between every two neighbouring sentences: 0 to 1, high means different style.
+     * See {@link BoundaryScores} for the definition, which the evaluator uses as well.
+     *
+     * @param embeddings the embeddings of the sentences of one document
+     * @return one score per boundary, {@code sentences - 1} numbers
      */
     public double[] changeScores(double[][] embeddings) {
-
-        int n = embeddings.length;
-        double[] scores = new double[Math.max(0, n - 1)];
-        if (n < 2) {
-            return scores;
-        }
-        int size = embeddings[0].length;
-
-        for (int i = 0; i + 1 < n; i++) {
-            double[] left = new double[size], right = new double[size];
-            for (int k = Math.max(0, i - window + 1); k <= i; k++) {
-                for (int j = 0; j < size; j++) {
-                    left[j] += embeddings[k][j];
-                }
-            }
-            for (int k = i + 1; k <= Math.min(n - 1, i + window); k++) {
-                for (int j = 0; j < size; j++) {
-                    right[j] += embeddings[k][j];
-                }
-            }
-            double dot = 0.0, a = 0.0, b = 0.0;
-            for (int j = 0; j < size; j++) {
-                dot += left[j] * right[j];
-                a += left[j] * left[j];
-                b += right[j] * right[j];
-            }
-            scores[i] = (1.0 - dot / (Math.sqrt(a * b) + 1e-12)) / 2.0;
-        }
-        return scores;
+        return BoundaryScores.forDocument(embeddings, 0, embeddings.length, window);
     }
 
     /** 0 / 1 per pair of neighbours, with the threshold chosen on the validation data. */

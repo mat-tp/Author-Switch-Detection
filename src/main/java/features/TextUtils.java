@@ -6,21 +6,20 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Utility class providing string cleaning, tokenisation, hashing, and syllable
+ * counting capabilities.
+ */
 public class TextUtils {
 
-    // Both cleaning methods are to be considered in the implementation of the
-    // features.
-
     /**
-     * Cleans a sentence
+     * Cleans a sentence by stripping characters that are not alphanumeric or single
+     * quotes.
+     * Casing is intentionally preserved to maintain model performance and feature
+     * integrity.
      *
-     * Not lowercesing as this could affect the performance of the model. For
-     * example, "I" and "i" are different words and have different meanings.
-     * Considering digits also as they could be important for some features (e.g.,
-     * dates, numbers, etc.)
-     *
-     * @param sentence the string to clean
-     * @return the cleaned string
+     * @param sentence the input string to clean
+     * @return the cleaned string, or an empty string if the input is null
      */
     public static String cleanSentence(String sentence) {
         if (sentence == null) {
@@ -28,15 +27,14 @@ public class TextUtils {
         }
 
         return sentence.replaceAll("[^a-zA-Z0-9']", "");
-
     }
 
     /**
-     * Clean Sentence by removing all non-alphabetic characters and converting to
-     * lowercase.
+     * Cleans a sentence by removing non-alphabetic characters and converting the
+     * result to lowercase.
      *
-     * @param sentence
-     * @return
+     * @param sentence the input string to clean
+     * @return the cleaned lowercase string, or an empty string if the input is null
      */
     public static String cleanSentenceLowercase(String sentence) {
         if (sentence == null) {
@@ -47,19 +45,13 @@ public class TextUtils {
     }
 
     /**
-     * Applies the casing policy of the configuration to a text.
+     * Applies the configured casing policy to a given text string.
      *
-     * Used by the DatasetLoader (so the text is already in its final casing when it
-     * is loaded) and again by the FeatureExtractor (so a text that comes from
-     * somewhere else, a typed sentence in the web app or a TIRA problem file, is
-     * treated exactly the same way). Lower-casing twice changes nothing.
-     *
-     * @param text   the text
-     * @param casing PRESERVE keeps it, LOWERCASE lower-cases it
-     * @return the text in the wanted casing
+     * @param text   the input text
+     * @param casing the casing rule to apply (PRESERVE or LOWERCASE)
+     * @return the text formatted according to the specified casing policy
      */
     public static String applyCasing(String text, FeatureConfig.Casing casing) {
-
         if (text == null) {
             return "";
         }
@@ -72,13 +64,13 @@ public class TextUtils {
     }
 
     /**
-     * Tokenises a string into a list of words.
+     * Tokenises a string into a list of words using basic whitespace splitting and
+     * character cleaning.
      *
-     * @param sentence the string to tokenize
-     * @return a list of tokens
+     * @param sentence the input string to tokenise
+     * @return a list of cleaned word tokens
      */
     public static List<String> tokenize(String sentence) {
-
         List<String> tokens = new ArrayList<>();
 
         if (sentence == null || sentence.isBlank()) {
@@ -96,27 +88,25 @@ public class TextUtils {
     }
 
     /*
-     * A word (letters, with inner apostrophes and hyphens: don't, well-known), a number (1,000.50),
-     * an ellipsis, or ANY other single visible character (every punctuation mark is its own token).
+     * Regular expression pattern used to extract tokens for part-of-speech taggers.
+     * Extracts individual words, formatted numbers, ellipses, and individual
+     * punctuation marks.
      */
     private static final Pattern TOKEN = Pattern.compile(
-            "\\p{L}[\\p{L}\\p{N}]*(?:['’]\\p{L}+)*(?:-\\p{L}[\\p{L}\\p{N}]*)*" // word
-                    + "|\\p{N}+(?:[.,]\\p{N}+)*" // number
-                    + "|\\.{2,}|…" // ellipsis
-                    + "|\\S"); // any other mark
+            "\\p{L}[\\p{L}\\p{N}]*(?:['’]\\p{L}+)*(?:-\\p{L}[\\p{L}\\p{N}]*)*" // Matches Unicode words, contractions,
+                                                                               // and hyphenated terms
+                    + "|\\p{N}+(?:[.,]\\p{N}+)*" // Matches integers, decimals, and formatted numbers
+                    + "|\\.{2,}|…" // Matches multi-period ellipses and Unicode ellipsis characters
+                    + "|\\S"); // Matches any single remaining non-whitespace character or symbol
 
     /**
-     * Tokenises a sentence like a POS tagger needs it: the words stay whole and
-     * every punctuation mark becomes its own token.
+     * Tokenises a sentence into word structures and standalone punctuation marks
+     * for linguistic processing.
      *
-     * "She didn't say much; she never did." gives
-     * [She, didn't, say, much, ;, she, never, did, .]
-     *
-     * @param sentence the sentence
-     * @return the tokens, the case is not changed
+     * @param sentence the input sentence to tokenise
+     * @return a list of tokens preserving character casing and punctuation
      */
     public static List<String> tokenizeWithPunctuation(String sentence) {
-
         List<String> tokens = new ArrayList<>();
 
         if (sentence == null || sentence.isBlank()) {
@@ -132,14 +122,13 @@ public class TextUtils {
     }
 
     /**
-     * The method to check if a character belongs in an char[] array.
+     * Evaluates whether a target character exists within a given character array.
      *
-     * @param targetChar char that we are searching for
-     * @param charArray  characters of interest
-     * @return true if it exists, else false
+     * @param targetChar the character to search for
+     * @param charArray  the array of characters to search within
+     * @return true if the character is found; false otherwise
      */
     public static boolean isCharInChars(char targetChar, char[] charArray) {
-
         for (char c : charArray) {
             if (targetChar == c) {
                 return true;
@@ -149,46 +138,53 @@ public class TextUtils {
     }
 
     /**
-     * Hash of text[from, to) for the hashed n-gram profiles.
+     * Computes a 32-bit FNV-1a and Murmur3-style mixed hash for a character
+     * sequence slice.
      *
-     * Not String.hashCode(): that one is a plain polynomial, so for short n-grams
-     * neighbouring grams ("the", "thf") land in neighbouring buckets and the low
-     * bits are poorly mixed, which is exactly what floorMod(hash, buckets) uses.
-     * FNV-1a followed by a murmur3 style finaliser mixes all the bits, so the
-     * grams are spread evenly over the buckets, whatever the number of buckets is.
-     *
-     * @param text the text
-     * @param from first character (included)
-     * @param to   last character (excluded)
-     * @return a well mixed 32 bit hash
+     * @param text the source character sequence
+     * @param from the inclusive starting index
+     * @param to   the exclusive ending index
+     * @return a mixed 32-bit hash value
      */
     public static int hash(CharSequence text, int from, int to) {
-
-        int h = 0x811C9DC5; // FNV offset basis
+        int h = 0x811C9DC5; // Initial FNV offset basis
 
         for (int i = from; i < to; i++) {
             h ^= text.charAt(i);
-            h *= 0x01000193; // FNV prime
+            h *= 0x01000193; // FNV prime multiplier
         }
 
         return mix(h);
     }
 
-    /** Same, for a sequence of small integers (POS tag n-grams). */
+    /**
+     * Computes a 32-bit mixed hash for a slice of an integer array, such as
+     * part-of-speech tag n-grams.
+     *
+     * @param values the source integer array
+     * @param from   the inclusive starting index
+     * @param to     the exclusive ending index
+     * @return a mixed 32-bit hash value
+     */
     public static int hash(int[] values, int from, int to) {
-
         int h = 0x811C9DC5;
 
         for (int i = from; i < to; i++) {
-            h ^= values[i] + 1; // +1: a tag 0 changes the hash too
+            h ^= values[i] + 1; // Increment prevents zero values from remaining unhashed
             h *= 0x01000193;
         }
 
         return mix(h);
     }
 
+    /**
+     * Bit-mixing function based on Murmur3 bit-finalisers to distribute hash bits
+     * evenly.
+     *
+     * @param h the intermediate hash state
+     * @return the thoroughly mixed integer hash
+     */
     private static int mix(int h) {
-
         h ^= h >>> 16;
         h *= 0x85EBCA6B;
         h ^= h >>> 13;
@@ -199,16 +195,14 @@ public class TextUtils {
     }
 
     /**
-     * Helper method to return syllable count of a word. This is still an
-     * approximation (English spelling has no exact rule), but it handles the
-     * two cases that the first version got wrong most often: a silent final "e"
-     * ("make" is one syllable, not two) and "y" as a vowel ("rhythm", "happy").
+     * Estimates the syllable count of a given word based on vowel cluster
+     * heuristics.
      *
-     * @param word the word to count syllables for
-     * @return the number of syllables in the word (at least 1 for a word)
+     * @param word the word to evaluate
+     * @return the estimated number of syllables, returning at least 1 for valid
+     *         inputs
      */
     public static int countSyllables(String word) {
-
         if (word == null || word.isEmpty()) {
             return 0;
         }
@@ -219,24 +213,23 @@ public class TextUtils {
 
         for (int i = 0; i < lower.length(); i++) {
             char c = lower.charAt(i);
-            // y counts as a vowel unless it starts the word (yes, you)
+            // Treat 'y' as a vowel unless it appears at the start of the word
             boolean isVowel = isVowel(c) || (c == 'y' && i > 0);
 
-            // Count a syllable if the current character is a vowel and the previous
-            // character was not a vowel (a group of vowels is ONE syllable)
+            // Increment syllable count at the start of each contiguous vowel sequence
             if (isVowel && !vowel) {
                 count++;
             }
             vowel = isVowel;
         }
 
-        // silent final e: make, like, time (but not "table", "little": consonant + le is a syllable)
+        // Adjust for unpronounced silent 'e' endings
         if (count > 1 && lower.endsWith("e") && !lower.endsWith("le") && !lower.endsWith("ee")
                 && lower.length() > 2 && !isVowel(lower.charAt(lower.length() - 2))) {
             count--;
         }
 
-        // "-ed" that is not pronounced (walked, jumped), but wanted/needed are 2 syllables
+        // Adjust for unpronounced '-ed' past-tense suffixes
         if (count > 1 && lower.endsWith("ed") && !lower.endsWith("ted") && !lower.endsWith("ded")
                 && lower.length() > 3 && !isVowel(lower.charAt(lower.length() - 3))) {
             count--;
@@ -245,6 +238,12 @@ public class TextUtils {
         return Math.max(count, 1);
     }
 
+    /**
+     * Checks whether a character is an English vowel.
+     *
+     * @param c the character to check
+     * @return true if the character is 'a', 'e', 'i', 'o', or 'u'; false otherwise
+     */
     private static boolean isVowel(char c) {
         return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
     }

@@ -1,10 +1,10 @@
 package com.hyp.authorswitchdetection.service;
 
+import analysis.DocumentSegmentation;
 import com.hyp.authorswitchdetection.service.classifier.AuthorSwitchClassifier;
 import com.hyp.authorswitchdetection.service.classifier.ClassifierRegistry;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -81,7 +81,7 @@ public class PredictionService {
 
         // the difficulty level is not asked for: it is detected from the text and the threshold of that level is used
         if (result.hasThreshold) {
-            models.LevelRouter.Decision decision = classifier.decideThreshold(sentences);
+            routing.LevelRouter.Decision decision = classifier.decideThreshold(sentences);
             if (decision != null && decision.level != null) {
                 result.threshold = decision.threshold;
                 result.detectedLevel = decision.level;
@@ -97,8 +97,6 @@ public class PredictionService {
         double[] probabilities = classifier.switchProbabilities(sentences);
 
         int[] predicted = new int[result.nPairs];
-        List<Integer> segmentStartIdx = new ArrayList<>();
-        segmentStartIdx.add(0);
 
         for (int i = 0; i < result.nPairs; i++) {
 
@@ -121,32 +119,19 @@ public class PredictionService {
 
             if (pair.isSwitch) {
                 result.nSwitches++;
-                segmentStartIdx.add(i + 1);
             }
             result.pairs.add(pair);
         }
 
-        // cutting the text at every predicted switch. A segment is not an author:
-        // the same author can come back (A B A), so this is only "switches + 1"
-        result.authorSegments = buildSegments(segmentStartIdx, sentences.size());
-        result.nSegments = result.authorSegments.size();
+        // a segment is not an author (the same author can come back), see DocumentSegmentation
+        DocumentSegmentation segmentation = DocumentSegmentation.fromScores(probabilities, result.threshold);
+        result.authorSegments = segmentation.sentenceIndicesPerSegment();
+        result.nSegments = segmentation.estimatedAuthors();
 
         if (result.hasTruth && result.nPairs > 0) {
             result.metrics = EvaluationMetrics.of(predicted, truth);
         }
 
         return result;
-    }
-
-    private List<List<Integer>> buildSegments(List<Integer> starts, int nSentences) {
-        List<List<Integer>> segments = new ArrayList<>();
-        for (int s = 0; s < starts.size(); s++) {
-            int from = starts.get(s);
-            int to = (s + 1 < starts.size()) ? starts.get(s + 1) : nSentences;
-            List<Integer> seg = new ArrayList<>();
-            for (int i = from; i < to; i++) seg.add(i);
-            segments.add(seg);
-        }
-        return segments;
     }
 }

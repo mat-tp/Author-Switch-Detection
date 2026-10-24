@@ -2,33 +2,39 @@ package data;
 
 import features.FeatureExtractor;
 
-/*
-    How two neighbouring sentences become ONE vector (the representation of a PAIR).
-
-    u, v = the z-scored scalar features of sentence 1 and 2 (raw values for RELATIVE).
-    The hashed profiles (character n-grams, POS n-grams, function words) always go in through
-    profile measures (cosine, Jensen-Shannon, total variation, support overlap), see
-    FeatureExtractor.profileMeasures.
-
-    | representation       | scalar part of the pair vector | width | symmetric |
-    | -------------------- | ------------------------------ | ----- | --------- |
-    | ABSOLUTE             | |u - v|                         | S     | yes       |
-    | SIGNED               | u - v                          | S     | no        |
-    | MEAN                 | (u + v) / 2                    | S     | yes       |
-    | ABSOLUTE_AND_MEAN    | [|u - v|, (u + v) / 2]         | 2S    | yes       |
-    | RELATIVE             | |u - v| / (|u| + |v| + eps)     | S     | yes       |
-    | CONCAT               | [u, v, |u - v|]  (SBERT)       | 3S    | no        |
-    | ABSOLUTE_AND_PRODUCT | [|u - v|, u * v]               | 2S    | yes       |
-
-    Why these: SIGNED keeps the direction of the change (A->B is not B->A), ABSOLUTE does not.
-    The mean is added because |u - v| is the same for (1, 2) and (101, 102): it says HOW MUCH they
-    differ but not WHERE on the scale. RELATIVE divides that away. CONCAT and ABSOLUTE_AND_PRODUCT
-    come from sentence-pair models (Reimers and Gurevych, 2019: |u - v| is the most important part of the
-    concatenation and u * v does not help on top of it), they give the classifier the raw sentences
-    too. The ablation study (Ablation.java, pair.*) reports them one by one.
+/**
+ * Defines strategies for combining two independent sentence feature vectors into a single
+ * pairwise representation vector for authorship verification classification.
+ *
+ * <p><strong>Representation Strategies:</strong> Let {@code u, v} be the z-scored scalar features
+ * of sentence 1 and sentence 2 (or raw values for {@code RELATIVE}). Hashed profile features
+ * (character n-grams, POS n-grams, function words) are strictly processed through profile
+ * divergence measures (Cosine, Jensen-Shannon, Total Variation), whereas scalar features
+ * are combined using one of the following enumerated strategies:</p>
+ *
+ * <table border="1">
+ *   <caption>Scalar Pair Representation Strategies</caption>
+ *   <tr><th>Representation</th><th>Scalar Part of Pair Vector</th><th>Width</th><th>Symmetric</th></tr>
+ *   <tr><td>{@link Representation#ABSOLUTE}</td><td>{@code |u - v|}</td><td>S</td><td>yes</td></tr>
+ *   <tr><td>{@link Representation#SIGNED}</td><td>{@code u - v}</td><td>S</td><td>no</td></tr>
+ *   <tr><td>{@link Representation#MEAN}</td><td>{@code (u + v) / 2}</td><td>S</td><td>yes</td></tr>
+ *   <tr><td>{@link Representation#ABSOLUTE_AND_MEAN}</td><td>{@code [|u - v|, (u + v) / 2]}</td><td>2S</td><td>yes</td></tr>
+ *   <tr><td>{@link Representation#RELATIVE}</td><td>{@code |u - v| / (|u| + |v| + eps)}</td><td>S</td><td>yes</td></tr>
+ *   <tr><td>{@link Representation#CONCAT}</td><td>{@code [u, v, |u - v|]} (SBERT)</td><td>3S</td><td>no</td></tr>
+ *   <tr><td>{@link Representation#ABSOLUTE_AND_PRODUCT}</td><td>{@code [|u - v|, u * v]}</td><td>2S</td><td>yes</td></tr>
+ * </table>
+ *
+ * <p><em>Design Note:</em> {@code SIGNED} preserves the direction of change (A&rarr;B vs B&rarr;A).
+ * {@code ABSOLUTE} alone obscures scale (e.g., a distance of 1 is the same for [1, 2] and [101, 102]),
+ * which is why {@code MEAN} or {@code RELATIVE} are offered as complements. {@code CONCAT} and
+ * {@code ABSOLUTE_AND_PRODUCT} are standard architectures adapted from sentence-pair models
+ * (e.g., Reimers and Gurevych, 2019).</p>
  */
 public class SentencePair {
 
+    /**
+     * Enumerates the available mathematical strategies for combining scalar features of two sentences.
+     */
     public enum Representation {
         ABSOLUTE(1, new String[] { "abs" }, 0),
         SIGNED(1, new String[] { "signed" }, -1),
@@ -48,22 +54,39 @@ public class SentencePair {
             this.absolutePart = absolutePart;
         }
 
-        /** How many times the scalar features appear in the pair vector. */
+        /**
+         * Returns how many times the scalar feature count is multiplied to form the pair vector.
+         *
+         * @return Integer multiplier for vector width allocation.
+         */
         public int multiplier() {
             return multiplier;
         }
 
-        /** Name prefixes of the parts, in order (abs_log_word_count, ...). */
+        /**
+         * Returns the descriptive name prefixes for the generated vector parts.
+         *
+         * @return Array of string prefixes (e.g., {@code ["abs_log_word_count", ...]}).
+         */
         public String[] columnPrefixes() {
             return prefixes.clone();
         }
 
-        /** Which part holds |u - v| (-1 when there is none). */
+        /**
+         * Identifies which partition holds the absolute difference {@code |u - v|}.
+         *
+         * @return 0-based index of the absolute part, or {@code -1} if absent.
+         */
         public int absolutePart() {
             return absolutePart;
         }
 
-        /** Parses a value of -Dpair=, short forms allowed (abs, signed, abs+mean, concat, ...). */
+        /**
+         * Parses a string configuration value into its corresponding {@code Representation} enum.
+         *
+         * @param text Configuration string (e.g., from {@code -Dpair=abs+mean}).
+         * @return Parsed {@link Representation} value.
+         */
         public static Representation parse(String text) {
 
             String value = text.trim().toUpperCase().replace('+', '_').replace('-', '_');
@@ -95,11 +118,11 @@ public class SentencePair {
     private int label;
 
     /**
-     * Constructor for a pair of consecutive sentences.
+     * Constructs a pair wrapper for two consecutive sentences alongside their ground-truth relationship.
      *
-     * @param sentence1 first sentence
-     * @param sentence2 second sentence
-     * @param label     ground-truth change label
+     * @param sentence1 The first chronological sentence string.
+     * @param sentence2 The second chronological sentence string.
+     * @param label Integer ground-truth author change label (1 = switch, 0 = same author).
      */
     public SentencePair(String sentence1, String sentence2, int label) {
 
@@ -109,46 +132,49 @@ public class SentencePair {
     }
 
     /**
-     * Returns the first sentence.
+     * Retrieves the first sentence of the pair.
      *
-     * @return first sentence
+     * @return First sentence string.
      */
     public String getSentence1() {
         return sentence1;
     }
 
     /**
-     * Returns the second sentence.
+     * Retrieves the second sentence of the pair.
      *
-     * @return second sentence
+     * @return Second sentence string.
      */
     public String getSentence2() {
         return sentence2;
     }
 
     /**
-     * Returns the ground-truth label.
+     * Retrieves the ground-truth transition label for the pair.
      *
-     * @return label
+     * @return Integer label (1 for an author change, 0 otherwise).
      */
     public int getLabel() {
         return label;
     }
 
     /**
-     * Writes the scalar part of a pair vector in the given representation.
-     * The parts follow each other (S = scalarCount): part 0 at [0, S), part 1 at [S, 2S), ...
+     * Populates a destination array with the calculated scalar portion of a pairwise vector
+     * according to the specified representation strategy.
      *
-     * @param representation how the two sentences are combined
-     * @param raw1           raw scalar features of sentence 1 (used by RELATIVE)
-     * @param raw2           raw scalar features of sentence 2
-     * @param z1             z-scores of sentence 1
-     * @param z2             z-scores of sentence 2
-     * @param scalarCount    S
-     * @param out            the pair vector
+     * <p>Sub-components follow each other sequentially. For a scalar count {@code S}:
+     * part 0 occupies indices {@code [0, S)}, part 1 occupies {@code [S, 2S)}, etc.</p>
+     *
+     * @param representation Strategy defining how to combine the scalar vectors.
+     * @param raw1 Raw scalar features of sentence 1 (required by {@link Representation#RELATIVE}).
+     * @param raw2 Raw scalar features of sentence 2.
+     * @param z1 Z-score standardized features of sentence 1.
+     * @param z2 Z-score standardized features of sentence 2.
+     * @param scalarCount Total number of scalar features (dimension {@code S}).
+     * @param out Destination array where the computed pairwise scalar block is written.
      */
     public static void writeScalarPart(Representation representation, double[] raw1, double[] raw2, double[] z1,
-            double[] z2, int scalarCount, double[] out) {
+                                       double[] z2, int scalarCount, double[] out) {
 
         for (int i = 0; i < scalarCount; i++) {
 
@@ -171,7 +197,6 @@ public class SentencePair {
                     out[scalarCount + i] = (u + v) / 2.0;
                     break;
                 case RELATIVE:
-                    // on the raw values: |a - b| / (|a| + |b|) is 0 (same) to 1 (opposite or one is 0)
                     out[i] = Math.abs(raw1[i] - raw2[i]) / (Math.abs(raw1[i]) + Math.abs(raw2[i]) + EPSILON);
                     break;
                 case CONCAT:
@@ -190,15 +215,16 @@ public class SentencePair {
     }
 
     /**
-     * Computing pairwise features for neighbouring sentences, as the model gets them:
-     * the pair representation of the scalar features, the profile measures and the overall
-     * distance (and the standardised bucket differences, when the extractor makes the full features).
-     * The extractor has to be fitted.
+     * Computes the complete pairwise feature vector for two sentences, matching the input format
+     * expected by trained classification models.
      *
-     * @param extractor the fitted feature extractor of the model
-     * @param features1 raw features of the 1st sentence (FeatureExtractor.getFeatures)
-     * @param features2 raw features of the 2nd sentence
-     * @return array of features for the pair
+     * <p>The generated vector concatenates the profile divergence measures, the designated scalar
+     * representation block, and any full-feature bucket differences.</p>
+     *
+     * @param extractor Fully fitted feature extractor instance.
+     * @param features1 Raw extracted features of the first sentence.
+     * @param features2 Raw extracted features of the second sentence.
+     * @return Complete combined pairwise feature vector as a double array.
      */
     public double[] getPairFeatures(FeatureExtractor extractor, double[] features1, double[] features2) {
 
@@ -207,10 +233,16 @@ public class SentencePair {
     }
 
     /**
-     * Same as getPairFeatures, but the bucket differences of the full features are NOT standardised yet
-     * (used while the training pairs are built: the scaler of those columns can only be fitted
-     * on all the training pairs, see FeatureExtractor.fitBlockDifferenceScaler). Without the
-     * full features it is the same as getPairFeatures.
+     * Similar to {@link #getPairFeatures(FeatureExtractor, double[], double[])}, but omits
+     * standardization on the full-feature bucket differences.
+     *
+     * <p>Used internally during the training matrix construction phase, as bucket difference scalers
+     * must be fitted collectively across all training pairs before they can be applied.</p>
+     *
+     * @param extractor Partially fitted feature extractor instance.
+     * @param features1 Raw extracted features of the first sentence.
+     * @param features2 Raw extracted features of the second sentence.
+     * @return Pairwise feature vector with unscaled profile bucket differences.
      */
     public double[] getUnscaledPairFeatures(FeatureExtractor extractor, double[] features1, double[] features2) {
 

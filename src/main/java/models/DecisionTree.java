@@ -6,6 +6,7 @@
 
 package models;
 
+import evaluation.Metrics;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.stream.IntStream;
@@ -357,37 +358,7 @@ public class DecisionTree implements Serializable {
             throw new IllegalStateException("No valid truth values were found");
         }
 
-        // Calculate proportions
-        double ones_prop = (double) onesCount / totalCount;
-        double zeros_prop = (double) zerosCount / totalCount;
-
-        // Simple check
-        if (Math.abs((ones_prop + zeros_prop) - 1.0) > epsilon) {
-
-            System.err.println("Ones and zeros: " + (ones_prop + zeros_prop));
-        }
-
-        // Entropy
-        if (isUsingEntropyt) {
-
-            double entropy = 0.0;
-
-            // Checkin
-            if (ones_prop > 0) {
-                entropy -= ones_prop * Math.log(ones_prop);
-            }
-
-            if (zeros_prop > 0) {
-                entropy -= zeros_prop * Math.log(zeros_prop);
-            }
-
-            return entropy;
-
-        } else {
-
-            // Gini Index
-            return 1.0 - Math.pow(ones_prop, 2) - Math.pow(zeros_prop, 2);
-        }
+        return impurity(onesCount, zerosCount, isUsingEntropyt);
     }
 
     /**
@@ -442,30 +413,35 @@ public class DecisionTree implements Serializable {
             throw new IllegalStateException("No valid truth values were found");
         }
 
-        // Calculate proportions
-        double ones_prop = (double) onesCount / totalCount;
-        double zeros_prop = (double) zerosCount / totalCount;
+        return impurity(onesCount, zerosCount, isUsingEntropyt);
+    }
 
-        // Entropy
-        if (isUsingEntropyt) {
+    /**
+     * Impurity of a node from the number of changes and non-changes in it.
+     *
+     * @param onesCount       number of samples of class 1
+     * @param zerosCount      number of samples of class 0
+     * @param isUsingEntropyt true for entropy (natural logarithm), false for the Gini index
+     * @return the impurity, 0 for a pure node
+     */
+    private static double impurity(int onesCount, int zerosCount, boolean isUsingEntropyt) {
 
-            double entropy = 0.0;
+        int totalCount = onesCount + zerosCount;
+        double onesShare = (double) onesCount / totalCount;
+        double zerosShare = (double) zerosCount / totalCount;
 
-            if (ones_prop > 0) {
-                entropy -= ones_prop * Math.log(ones_prop);
-            }
-
-            if (zeros_prop > 0) {
-                entropy -= zeros_prop * Math.log(zeros_prop);
-            }
-
-            return entropy;
-
-        } else {
-
-            // Gini Index
-            return 1.0 - Math.pow(ones_prop, 2) - Math.pow(zeros_prop, 2);
+        if (!isUsingEntropyt) {
+            return 1.0 - onesShare * onesShare - zerosShare * zerosShare;
         }
+
+        double entropy = 0.0;
+        if (onesShare > 0) {
+            entropy -= onesShare * Math.log(onesShare);
+        }
+        if (zerosShare > 0) {
+            entropy -= zerosShare * Math.log(zerosShare);
+        }
+        return entropy;
     }
 
     /**
@@ -1404,7 +1380,7 @@ public class DecisionTree implements Serializable {
         int[] predictions = predictAll(testMatrix);
 
         // shared with every other model, so accuracy/precision/recall/F1/balanced
-        // accuracy are computed the same way everywhere (see models.Metrics)
+        // accuracy are computed the same way everywhere (see evaluation.Metrics)
         return Metrics.evaluate(predictions, testTruthValues);
     }
 }

@@ -1,6 +1,7 @@
 %% Every entry below is cited in main.tex. Entries were checked against
 %% the publisher, CEUR-WS, arXiv or the PAN task pages (see notes in the reply).
 
+% Please let's only put the correct one here and remove the others for this task.
 @misc{zangerle_2026_19068843,
   author    = {Zangerle, Eva and Mayerl, Maximilian and Stein, Benno and Potthast, Martin},
   title     = {{PAN26} Multi-Author Writing Style Analysis},
@@ -26,8 +27,8 @@
   title         = {Overview of {PAN} 2026: Voight-Kampff Generative {AI} Detection, Text Watermarking, Multi-Author Writing Style Analysis, Generative Plagiarism Detection, and Reasoning Trajectory Detection},
   year          = {2026},
   eprint        = {2602.09147},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.CL},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.CL},
   url           = {https://arxiv.org/abs/2602.09147}
 }
 
@@ -95,15 +96,13 @@
   year      = {2022}
 }
 
-@inproceedings{chen2023writing,
-  author    = {Chen, Haoyang and Han, Zhongyuan and Li, Zengyao and Han, Yong},
+// make sure we change the main.tex from chen2023writing to chen2023AWS
+@inproceedings{Chen2023AWS,
   title     = {A Writing Style Embedding Based on Contrastive Learning for Multi-Author Writing Style Analysis},
-  booktitle = {Working Notes of {CLEF} 2023 -- Conference and Labs of the Evaluation Forum},
-  series    = {CEUR Workshop Proceedings},
-  volume    = {3497},
-  pages     = {2562--2567},
-  publisher = {CEUR-WS.org},
-  year      = {2023}
+  author    = {Haoyang Chen and Zhong-yuan Han and Zengyao Li and Yong Han},
+  booktitle = {Conference and Labs of the Evaluation Forum},
+  year      = {2023},
+  url       = {https://api.semanticscholar.org/CorpusID:264441308}
 }
 
 @inproceedings{alsheddi2025team,
@@ -171,15 +170,12 @@
 }
 
 @incollection{ramnial2015authorship,
+  title     = {Authorship attribution using stylometry and machine learning techniques},
   author    = {Ramnial, Hoshiladevi and Panchoo, Shireen and Pudaruth, Sameerchand},
-  title     = {Authorship Attribution Using Stylometry and Machine Learning Techniques},
-  booktitle = {Intelligent Systems Technologies and Applications},
-  series    = {Advances in Intelligent Systems and Computing},
-  volume    = {384},
-  publisher = {Springer},
-  address   = {Cham},
-  year      = {2016},
-  doi       = {10.1007/978-3-319-23036-8_10}
+  booktitle = {Intelligent Systems Technologies and Applications: Volume 1},
+  pages     = {113--125},
+  year      = {2015},
+  publisher = {Springer}
 }
 
 @article{10.1093/llc/fqq001,
@@ -192,6 +188,7 @@
   year    = {2010},
   doi     = {10.1093/llc/fqq001}
 }
+
 
 @inproceedings{6722273,
   author    = {Stuart, Lauren M. and Tazhibayeva, Saltanat and Wagoner, Amy R. and Taylor, Julia M.},
@@ -212,19 +209,20 @@
 }
 
 @article{mohammad2013crowdsourcing,
-  author  = {Mohammad, Saif M. and Turney, Peter D.},
-  title   = {Crowdsourcing a word-emotion association lexicon},
-  journal = {Computational Intelligence},
-  volume  = {29},
-  number  = {3},
-  pages   = {436--465},
-  year    = {2013}
+  title     = {Crowdsourcing a word--emotion association lexicon},
+  author    = {Mohammad, Saif M and Turney, Peter D},
+  journal   = {Computational intelligence},
+  volume    = {29},
+  number    = {3},
+  pages     = {436--465},
+  year      = {2013},
+  publisher = {Wiley Online Library}
 }
 
 @article{chawla2002smote,
-  author  = {Chawla, Nitesh V. and Bowyer, Kevin W. and Hall, Lawrence O. and Kegelmeyer, W. Philip},
-  title   = {{SMOTE}: Synthetic Minority Over-sampling Technique},
-  journal = {Journal of Artificial Intelligence Research},
+  title   = {SMOTE: synthetic minority over-sampling technique},
+  author  = {Chawla, Nitesh V and Bowyer, Kevin W and Hall, Lawrence O and Kegelmeyer, W Philip},
+  journal = {Journal of artificial intelligence research},
   volume  = {16},
   pages   = {321--357},
   year    = {2002}
@@ -232,36 +230,35 @@
 
 @article{oloo2022optimal,
   author  = {Oloo, Vivian and Wanzare, Lilian and Otieno, Calvins},
-  title   = {An Optimal Feature Set for Stylometry-based Style Change Detection at Document and Sentence Level},
-  journal = {International Journal of Scientific Research in Computer Science, Engineering and Information Technology},
-  pages   = {295--313},
   year    = {2022},
+  month   = {11},
+  pages   = {295-313},
+  title   = {An Optimal Feature Set for Stylometry-based Style Change detection at Document and Sentence Level},
+  journal = {International Journal of Scientific Research in Computer Science, Engineering and Information Technology},
   doi     = {10.32628/CSEIT228617}
 }
 
 @article{flesch1948new,
-  author  = {Flesch, Rudolf},
-  title   = {A new readability yardstick},
-  journal = {Journal of Applied Psychology},
-  volume  = {32},
-  number  = {3},
-  pages   = {221--233},
-  year    = {1948}
+  title     = {A new readability yardstick.},
+  author    = {Flesch, Rudolph},
+  journal   = {Journal of applied psychology},
+  volume    = {32},
+  number    = {3},
+  pages     = {221},
+  year      = {1948},
+  publisher = {American Psychological Association}
 }
 
-@book{gunning1952technique,
-  author    = {Gunning, Robert},
-  title     = {The Technique of Clear Writing},
-  publisher = {McGraw-Hill},
-  address   = {New York},
-  year      = {1952}
+@article{gunning1952technique,
+  title   = {The technique of clear writing},
+  author  = {Gunning, Robert},
+  journal = {(No Title)},
+  year    = {1952}
 }
 
-@techreport{kincaid1975derivation,
-  author      = {Kincaid, J. Peter and Fishburne, Robert P. and Rogers, Richard L. and Chissom, Brad S.},
-  title       = {Derivation of new readability formulas (Automated Readability Index, Fog Count and Flesch Reading Ease formula) for Navy enlisted personnel},
-  institution = {Naval Technical Training Command, Research Branch},
-  address     = {Millington, TN},
-  number      = {8-75},
-  year        = {1975}
+@article{kincaid1975derivation,
+  title     = {Derivation of new readability formulas (automated readability index, fog count and flesch reading ease formula) for navy enlisted personnel},
+  author    = {Kincaid, J Peter and Fishburne Jr, Robert P and Rogers, Richard L and Chissom, Brad S},
+  year      = {1975},
+  publisher = {Institute for Simulation and Training, University of Central Florida}
 }

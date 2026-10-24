@@ -9,41 +9,64 @@ import java.util.stream.IntStream;
 import features.FeatureExtractor;
 
 /**
- * The sentences of a list of documents for the retrieval model, ONE sentence at a time (no pairs):
- * the network input of every sentence, and which document and which segment it belongs to.
+ * Encapsulates sentence-level data and document metadata for retrieval models operating
+ * on individual sentences rather than sentence pairs.
  *
- * A segment is a run of sentences without a change between them (DatasetLoader.Problem.segments).
- * The sentences are stored document after document, segment after segment, so the sentences of a
- * segment (or document) are one block of the arrays.
+ * <p>Manages dense network embedding inputs for each sentence alongside mapping arrays
+ * linking sentences to their parent documents and contiguous segments.</p>
  *
- * What is known about authorship: two sentences of the SAME segment have the same author, two sentences of
- * NEXT-TO-EACH-OTHER segments have different authors. Two segments that are not next to each other can
- * have the same author (a document with two authors alternates) or not, the dataset does not say. The
- * training and the evaluation therefore only use the first two facts.
+ * <p><strong>Segment Properties:</strong> A segment represents a contiguous run of sentences
+ * authored by a single writer without an authorial change (see {@code DatasetLoader.Problem.segments}).
+ * Sentences are stored sequentially document-by-document and segment-by-segment in contiguous array blocks.</p>
+ *
+ * <p><strong>Authorship Invariants:</strong>
+ * <ul>
+ *   <li>Two sentences within the <em>same</em> segment share the same author.</li>
+ *   <li>Two sentences in <em>adjacent</em> segments belong to different authors.</li>
+ *   <li>Non-adjacent segments may or may not share an author; training and evaluation protocols exclusively leverage adjacent/intra-segment relations.</li>
+ * </ul>
+ * </p>
  */
 public class RetrievalData {
 
-    /** the network input of every sentence (FeatureExtractor.embeddingInput) */
+    /** Network input feature vectors for every sentence generated via {@link FeatureExtractor#embeddingInput(double[], double)}. */
     public final float[][] x;
-    /** document of every sentence */
+
+    /** Parent document index corresponding to each sentence. */
     public final int[] doc;
-    /** global segment number of every sentence */
+
+    /** Global contiguous segment index corresponding to each sentence. */
     public final int[] segment;
-    /** first sentence of every document; one more entry at the end = number of sentences */
+
+    /** Starting sentence index for each document; final entry stores total sentence count. */
     public final int[] docStart;
-    /** first sentence of every segment; one more entry at the end */
+
+    /** Starting sentence index for each segment; final entry stores total sentence count. */
     public final int[] segStart;
-    /** document of every segment */
+
+    /** Parent document index corresponding to each segment. */
     public final int[] segDoc;
-    /** the change labels of every document (length = sentences - 1) */
+
+    /** Author change indicator labels for each document (length = sentences - 1). */
     public final int[][] changes;
-    /** easy / medium / hard of every document */
+
+    /** Number of authors of each document from the truth file, 0 when it is not known. */
+    public final int[] authors;
+
+    /** Global index of the first segment of each document; the final entry stores the total segment count. */
+    public final int[] docFirstSegment;
+
+    /** Categorical difficulty level string (e.g., easy, medium, hard) for each document. */
     public final String[] difficulty;
-    /** the text, for the examples in the reports (null when not kept) */
+
+    /** Original sentence text retained for reporting and examples ({@code null} if omitted). */
     public final String[] text;
 
+    /**
+     * Private constructor to instantiate immutable {@link RetrievalData} containers.
+     */
     private RetrievalData(float[][] x, int[] doc, int[] segment, int[] docStart, int[] segStart, int[] segDoc,
-            int[][] changes, String[] difficulty, String[] text) {
+                          int[][] changes, int[] authors, int[] docFirstSegment, String[] difficulty, String[] text) {
         this.x = x;
         this.doc = doc;
         this.segment = segment;
@@ -51,44 +74,85 @@ public class RetrievalData {
         this.segStart = segStart;
         this.segDoc = segDoc;
         this.changes = changes;
+        this.authors = authors;
+        this.docFirstSegment = docFirstSegment;
         this.difficulty = difficulty;
         this.text = text;
     }
 
+    /**
+     * Returns the total number of processed sentences in the dataset.
+     *
+     * @return Integer sentence count.
+     */
     public int size() {
         return x.length;
     }
 
+    /**
+     * Returns the total number of documents in the dataset.
+     *
+     * @return Integer document count.
+     */
     public int documents() {
         return docStart.length - 1;
     }
 
+    /**
+     * Returns the total number of segments across all documents.
+     *
+     * @return Integer segment count.
+     */
     public int segments() {
         return segStart.length - 1;
     }
 
-    /** Number of sentences of a segment. */
+    /**
+     * Returns the position of a segment inside its own document.
+     *
+     * @param segment Global segment index.
+     * @return Position starting at 0 for the first segment of the document.
+     */
+    public int segmentPositionInDocument(int segment) {
+        return segment - docFirstSegment[segDoc[segment]];
+    }
+
+    /**
+     * Returns how many segments a document has.
+     *
+     * @param document Document index.
+     * @return Number of segments.
+     */
+    public int segmentsInDocument(int document) {
+        return docFirstSegment[document + 1] - docFirstSegment[document];
+    }
+
+    /**
+     * Calculates the number of sentences contained within a specific segment.
+     *
+     * @param segment Target global segment index.
+     * @return Integer sentence count for the segment.
+     */
     public int segmentLength(int segment) {
         return segStart[segment + 1] - segStart[segment];
     }
 
     /**
-     * Fits the z-score parameters of the extractor on the sentences of the training documents
-     * (each sentence once) - the pair pipeline fits the same scaler on the same sentences - and
-     * returns the training data.
+     * Fits feature normalization parameters on training document sentences and returns a populated dataset.
      *
-     * @param problems      the training documents
-     * @param extractor     not fitted yet; fitted by this call
-     * @param profileScale  see FeatureExtractor.embeddingInput
-     * @param maxSentences  at most this many sentences (whole documents, chosen with a fixed seed)
+     * @param problems List of training documents.
+     * @param extractor Unfitted feature extractor instance to fit.
+     * @param profileScale Weighting factor for profile distributions (see {@link FeatureExtractor#embeddingInput(double[], double)}).
+     * @param maxSentences Upper boundary on sentence count to process (selected via deterministic seed).
+     * @return Fully initialized and scaled {@link RetrievalData} container.
      */
     public static RetrievalData buildTraining(List<DatasetLoader.Problem> problems, FeatureExtractor extractor,
-            double profileScale, int maxSentences) {
+                                              double profileScale, int maxSentences) {
 
         List<DatasetLoader.Problem> chosen = limit(problems, maxSentences);
         extractor.prepare();
 
-        // pass 1: only the scalars, for the z-score parameters
+        // Pass 1: Extract scalar features to fit z-score normalization parameters
         List<List<String>> sentences = new ArrayList<>();
         for (DatasetLoader.Problem p : chosen) {
             sentences.add(p.sentences);
@@ -123,13 +187,17 @@ public class RetrievalData {
     }
 
     /**
-     * The data of documents, with the extractor already fitted (validation, test, and the
-     * documents of the web app).
+     * Constructs a retrieval dataset from documents using a pre-fitted feature extractor.
      *
-     * @param keepText true = keep the sentences (for examples)
+     * @param problems List of target documents.
+     * @param extractor Pre-fitted feature extractor instance.
+     * @param profileScale Weighting factor for profile distributions.
+     * @param maxSentences Upper boundary on total sentence count.
+     * @param keepText {@code true} to retain raw text strings for reporting.
+     * @return Initialized {@link RetrievalData} container.
      */
     public static RetrievalData build(List<DatasetLoader.Problem> problems, FeatureExtractor extractor,
-            double profileScale, int maxSentences, boolean keepText) {
+                                      double profileScale, int maxSentences, boolean keepText) {
 
         List<DatasetLoader.Problem> chosen = limit(problems, maxSentences);
         extractor.prepare();
@@ -146,7 +214,7 @@ public class RetrievalData {
         int[] segment = new int[total];
         String[] text = keepText ? new String[total] : null;
 
-        // segments: global numbers, contiguous
+        // Process contiguous global segment allocations
         int[] segmentsBefore = new int[nDocs + 1];
         int[][] localSegments = new int[nDocs][];
         for (int d = 0; d < nDocs; d++) {
@@ -159,10 +227,12 @@ public class RetrievalData {
         int[] segStart = new int[nSegments + 1];
         int[] segDoc = new int[nSegments];
         int[][] changes = new int[nDocs][];
+        int[] authors = new int[nDocs];
         String[] difficulty = new String[nDocs];
 
         for (int d = 0; d < nDocs; d++) {
             changes[d] = chosen.get(d).changes;
+            authors[d] = chosen.get(d).authors;
             difficulty[d] = chosen.get(d).difficulty;
             for (int i = 0; i < localSegments[d].length; i++) {
                 int global = segmentsBefore[d] + localSegments[d][i];
@@ -187,10 +257,17 @@ public class RetrievalData {
             }
         });
 
-        return new RetrievalData(x, doc, segment, docStart, segStart, segDoc, changes, difficulty, text);
+        return new RetrievalData(x, doc, segment, docStart, segStart, segDoc, changes, authors, segmentsBefore,
+                difficulty, text);
     }
 
-    /** Whole documents, at most maxSentences sentences (a fixed shuffle first, so it is a fair picture). */
+    /**
+     * Filters documents to fit within a specified maximum sentence capacity using a deterministic shuffle.
+     *
+     * @param problems Input list of documents.
+     * @param maxSentences Maximum sentence allowance.
+     * @return Subset of selected documents.
+     */
     private static List<DatasetLoader.Problem> limit(List<DatasetLoader.Problem> problems, int maxSentences) {
 
         long total = 0;

@@ -9,26 +9,36 @@ import features.FeatureConfig;
 import features.FeatureExtractor;
 
 /**
- * The text of a whole run: the training sentences, the training pairs and the validation / test
- * pairs of every difficulty, loaded ONCE.
+ * Manages the raw text payload for a complete experimental run, caching training sentences,
+ * training pairs, and validation/test pairs across all specified difficulty levels.
  *
- * Why it is separate from the feature matrices: the ablation study builds the matrices many times
- * with different feature settings (casing, n-gram orders, bucket sizes, pair representation, ...)
- * from the same text, and Main builds them once. build(config) is the only place that does it,
- * with the protocol the project always had:
- * - the extractor (TF-IDF table) and the z-score parameters are fitted on the TRAINING data only
- * - validation (the 1st half of the validation split) chooses the threshold / stops the training
- * - test (the 2nd half, never used before) gives the reported numbers; with full validation
- * (USE_FULL_VALIDATION) there is no test and the validation numbers are reported
+ * <p><strong>Design Rationale:</strong> This dataset container is strictly separated from
+ * the numeric feature matrices to optimize ablation studies. Ablation testing requires
+ * building many different feature representations (varying casing, n-gram orders, bucket sizes)
+ * from the exact same text. Caching the raw text allows {@link #build(FeatureConfig)} to
+ * repeatedly generate different feature matrices without redundant disk I/O.</p>
+ *
+ * <p><strong>Evaluation Protocol:</strong>
+ * <ul>
+ *   <li><strong>Training:</strong> The feature extractor (TF-IDF tables) and z-score standardizations are fitted exclusively on this subset.</li>
+ *   <li><strong>Validation:</strong> The first half of the validation split, used to dynamically select decision thresholds or trigger early stopping.</li>
+ *   <li><strong>Test:</strong> The second half of the validation split (strictly held out) used to generate the final reported metrics. If {@code USE_FULL_VALIDATION} is active, this split is disabled and validation numbers are reported instead.</li>
+ * </ul>
+ * </p>
  */
 public class Corpus {
 
     public static final String[] DIFFICULTIES = { "easy", "medium", "hard" };
 
     /**
-     * The difficulty levels a run uses. PAN scores every level as its OWN dataset, so a run can be limited to one
-     * of them with -Ddifficulty=easy|medium|hard (training, validation, test, thresholds: all of that level only).
-     * The default, "all", trains on the three levels together and reports every level separately.
+     * Determines which difficulty levels are active for the current experimental run based on system properties.
+     *
+     * <p>PAN evaluates each difficulty level as an independent dataset. Runs can be restricted to a single
+     * level using the JVM argument {@code -Ddifficulty=easy|medium|hard}. The default ({@code all}) trains
+     * on the three levels combined but evaluates them separately.</p>
+     *
+     * @return Array of active difficulty string identifiers.
+     * @throws IllegalArgumentException If the provided system property does not match valid difficulty tiers.
      */
     public static String[] active() {
         String wanted = System.getProperty("difficulty", "all").trim().toLowerCase();
@@ -50,7 +60,7 @@ public class Corpus {
     public final boolean fullValidation;
     public final FeatureConfig.Casing loadedCasing;
 
-    /** true when the memory guard cut the data down */
+    /** Indicates the fraction of data retained when memory constraints force downsampling (1.0 = all data used). */
     public double fractionUsed = 1.0;
 
     private Corpus(List<String> trainingSentences, boolean fullValidation, FeatureConfig.Casing loadedCasing) {
@@ -60,20 +70,18 @@ public class Corpus {
     }
 
     /**
-     * Loads the text.
+     * Loads the raw text dataset into memory and applies necessary memory-guard downsampling.
      *
-     * @param datasetPath     the folder with easy/medium/hard
-     * @param useFullValidation true = the whole validation split is validation and there is no test
-     * @param subsetSize      at most this many pairs per split (and per difficulty for validation / test)
-     * @param casing          the text is lower-cased while loading when this is LOWERCASE (the extractor
-     *                        does the same by itself, so loading with PRESERVE and using LOWERCASE
-     *                        gives the same features; ablation variants rely on that)
-     * @param pairFeatureCount width of the pair vector (for the memory guard)
-     * @param heapFraction    the part of the heap the matrices may use
-     * @return the corpus, or null when there is no training data
+     * @param datasetPath Base directory path containing easy/medium/hard dataset folders.
+     * @param useFullValidation If {@code true}, allocates the entire validation split to validation and disables the test split.
+     * @param subsetSize Maximum allowed pairs per split (and per difficulty level for evaluation splits).
+     * @param casing Initial text casing applied during load. (Note: Loading with PRESERVE and extracting with LOWERCASE yields the same features as loading with LOWERCASE).
+     * @param pairFeatureCount Projected width of the extracted pair feature vector, used for memory footprint estimation.
+     * @param heapFraction Maximum fraction of available JVM heap memory the resulting matrices are allowed to occupy.
+     * @return Fully populated {@link Corpus} instance, or {@code null} if no training data was found.
      */
     public static Corpus load(String datasetPath, boolean useFullValidation, int subsetSize,
-            FeatureConfig.Casing casing, int pairFeatureCount, double heapFraction) {
+                              FeatureConfig.Casing casing, int pairFeatureCount, double heapFraction) {
 
         List<String> trainingSentences = new ArrayList<>();
         for (String difficulty : active()) {
@@ -101,18 +109,11 @@ public class Corpus {
                     : DatasetLoader.loadSplitHalf(datasetPath, "validation", difficulty, true, casing));
 
             if (!useFullValidation) {
-                // the 2nd half of the validation set, used only once at the end
                 corpus.test.put(difficulty,
                         DatasetLoader.loadSplitHalf(datasetPath, "validation", difficulty, false, casing));
             }
         }
 
-        /*
-         * How much of it fits in memory: the wanted sizes are subsetSize at most,
-         * and if that is more than the heap can hold, everything is shrunk by the
-         * same fraction (the pairs are shuffled with a fixed seed first, so the
-         * smaller sets are still a fair picture of the whole).
-         */
         long wantedTrain = Math.min(dataset.size(), subsetSize);
         long wantedEvaluation = 0;
         for (List<SentencePair> v : corpus.validation.values()) {
@@ -147,7 +148,9 @@ public class Corpus {
         return corpus;
     }
 
-    /** The matrices of one feature setting. */
+    /**
+     * Container holding the extracted numeric feature matrices and truth labels for a specific feature configuration.
+     */
     public static class Datasets {
 
         public FeatureExtractor extractor;
@@ -155,49 +158,41 @@ public class Corpus {
         public double[][] train;
         public int[] trainY;
 
-        public double[][] val; // null = no validation data
+        public double[][] val;
         public int[] valY;
 
-        public double[][] test; // null = no test data (full validation)
+        public double[][] test;
         public int[] testY;
 
-        // the split the final numbers come from: test when available, else validation
         public double[][] eval;
         public int[] evalY;
         public boolean evalIsTest;
         public Map<String, double[][]> evalByDifficulty = new LinkedHashMap<>();
         public Map<String, int[]> evalYByDifficulty = new LinkedHashMap<>();
 
-        // the validation data of every difficulty on its own: the threshold of a level is chosen on its own part
         public Map<String, double[][]> valByDifficulty = new LinkedHashMap<>();
         public Map<String, int[]> valYByDifficulty = new LinkedHashMap<>();
     }
 
     /**
-     * Fits the extractor on the training text and builds all the matrices.
+     * Initializes a feature extractor on the cached training text and generates numeric matrices for all data splits.
      *
-     * @param config how the features are computed
-     * @return the matrices, with val / eval filled in as far as the data goes
+     * @param config Feature configuration parameters specifying which features to extract.
+     * @return Populated {@link Datasets} container containing feature matrices (X) and label arrays (y).
      */
     public Datasets build(FeatureConfig config) {
 
         Datasets d = new Datasets();
 
-        // the extractor first: all it keeps from the corpus is the vocabulary / IDF table
         d.extractor = new FeatureExtractor(trainingSentences, config);
 
         System.out.println();
         System.out.println("Features: " + d.extractor.describe());
         System.out.println("Extracting features for " + train.size() + " pairs...");
 
-        d.train = PairMatrixBuilder.buildTrainingMatrix(train, d.extractor); // X
-        d.trainY = PairMatrixBuilder.getTruthValues(train); // y
+        d.train = PairMatrixBuilder.buildTrainingMatrix(train, d.extractor);
+        d.trainY = PairMatrixBuilder.getTruthValues(train);
 
-        /*
-         * Validation & test data, both not used for training (nor for the z-score
-         * parameters). Every difficulty's matrix is built ONCE, and the combined one
-         * is just those same rows in one array (no second copy of the numbers).
-         */
         Map<String, double[][]> validationMatrices = new LinkedHashMap<>();
         Map<String, int[]> validationTruth = new LinkedHashMap<>();
         Map<String, double[][]> testMatrices = new LinkedHashMap<>();

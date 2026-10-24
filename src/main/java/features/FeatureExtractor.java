@@ -1,5 +1,9 @@
 package features;
 
+import util.DistributionDistances;
+import util.InformationTheory;
+import util.Statistics;
+import util.VectorMath;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
@@ -10,81 +14,35 @@ import java.util.*;
 import data.SentencePair;
 
 /**
- * Features extraction for sentences and sentence pairs, used by the
+ * Main feature extraction engine for individual sentences and sentence pairs.
  *
- * Most of the features are based on the paper as cited below:
- * Reference:
+ * <p>Computes scalar stylometric features (e.g., readability scores, punctuation rates,
+ * character/word statistics, emotion scores) and profile block distributions
+ * (character n-grams, POS tag n-grams, function word profiles).</p>
  *
- * @article{article,
- *                   author = {Oloo, Vivian and Wanzare, Lilian and Otieno,
- *                   Calvins},
- *                   year = {2022},
- *                   month = {11},
- *                   pages = {295-313},
- *                   title = {An Optimal Feature Set for Stylometry-based Style
- *                   Change detection at Document and Sentence Level},
- *                   journal = {International Journal of Scientific Research in
- *                   Computer Science, Engineering and Information Technology},
- *                   doi = {10.32628/CSEIT228617}
- *                   }
- *
- *                   The feature families that were added later (function words,
- *                   per mark punctuation, word length distribution, vocabulary richness,
- *                   contractions, POS ratios and POS n-grams, character n-grams of
- *                   order 1 to 5) follow the systems of the earlier PAN style change
- *                   detection tasks, see docs/RESEARCH.md for every source.
- *
- *                   Stanford CoreNLP: To be considered for higher POS Tagging
- *                   accuracy (-Dpos.tagger=corenlp), but it is slow and requires a lot of memory.
- *
+ * <p><strong>Tagging Note:</strong> Integrates with {@link PosTagger} (either heuristic or
+ * Stanford CoreNLP based on configuration).</p>
  */
 public class FeatureExtractor implements Serializable {
 
     private static final long serialVersionUID = 2L;
 
-    // A saved model that was fitted with another layout can not be used (see requireCompatible)
+    // Saved models fitted with a different layout version cannot be loaded.
     private static final int LAYOUT_VERSION = 2;
 
-    /*
-     * Paths for the files used to get the features (Function words And Word-Emotion
-     * which is associated with SentimentAnalysis)
-     */
+    /** Path to the Google 10,000 frequent English words dataset. */
     String frequentWordsFilePath = "dataset/word-processing/frequentWords/google-10000-english.txt";
+
+    /** Path to the NRC Emotion Lexicon word-level dataset. */
     String sentimentAnalysisFilePath = "dataset/word-processing/NRC-Emotion-Lexicon/NRC-Emotion-Lexicon/NRC-Emotion-Lexicon-Wordlevel-v0.92.txt";
 
-    /*
-     * Puctuations of Interest:
-     * - , comma
-     * - ; semicolon
-     * - : colon
-     * - ! exclamation
-     * - ? question
-     * - . period
-     * - " straight double quote
-     * - ' straight apostrophe
-     * - ( left parenthesis
-     * - ) right parenthesis
-     * - [ left bracket
-     * - ] right bracket
-     * - { left brace
-     * - } right brace
-     * - - hyphen
-     * - -- double hyphen
-     * - – en dash
-     * - — em dash
-     * - … ellipsis character
-     */
+    /** Punctuation marks tracked for variety and density calculation. */
     private static final char[] PUNCTUATION = { '!', ';', ',', '.', '?', '\'', '"', ':', '(', ')', '-', '—', '–', '…',
             '[', ']', '{', '}' };
 
-    /*
-     * Scalar feature layout. This is the SINGLE source of truth: getFeatures,
-     * FeatureGroup (ablation), PairFeatureUtil (names) and the web pages all read
-     * it, so a new feature is added here (+ one line in FeatureGroup) and nothing
-     * else.
-     *
-     * The first 14 are the original features (same order as before), the rest are
-     * the feature families added for the PAN study (see docs/RESEARCH.md).
+    /**
+     * Array of all scalar feature names in strict layout order.
+     * The first 14 elements represent core legacy features; remaining elements represent extended stylometric features.
      */
     public static final String[] SCALAR_NAMES = {
             "log_word_count", // 0
@@ -102,30 +60,36 @@ public class FeatureExtractor implements Serializable {
             "gunning_fog", // 12
             "flesch_kincaid_grade", // 13
 
-            // word length distribution
+            // Word length distribution
             "word_length_std", "wl_1_2", "wl_3_4", "wl_5_6", "wl_7_8", "wl_9_10", "wl_11_plus",
 
-            // vocabulary richness / word rarity / function words
+            // Vocabulary richness / word rarity / function words
             "hapax_ratio", "simpson_d", "yule_k", "avg_word_freq_class", "function_word_ratio",
 
-            // punctuation, one rate (per word) for every mark
+            // Punctuation rates per word
             "comma_rate", "period_rate", "semicolon_rate", "colon_rate", "exclamation_rate", "question_rate",
             "quote_rate", "apostrophe_rate", "bracket_rate", "dash_rate", "ellipsis_rate", "repeated_punct_rate",
 
-            // orthography / layout / dialogue habits
+            // Orthography / layout / dialogue habits
             "all_caps_word_ratio", "capitalized_word_ratio", "starts_with_capital", "ends_with_terminal",
             "starts_with_dialogue", "non_ascii_ratio", "spacing_anomaly_rate", "elongation_ratio",
             "starts_with_conjunction",
 
-            // contractions (didn't, it's, I'll)
+            // Contractions
             "contraction_ratio",
 
-            // syntax: share of every coarse POS tag, and how evenly they are spread
+            // Syntax: POS tag shares and entropy
             "pos_noun", "pos_propn", "pos_verb", "pos_aux", "pos_adj", "pos_adv", "pos_pron", "pos_det",
             "pos_adp", "pos_conj", "pos_num", "pos_part", "pos_intj", "pos_punct", "pos_entropy"
     };
 
-    /** Index of a scalar feature by name (used by FeatureGroup and the self checks). */
+    /**
+     * Finds the index slot of a scalar feature by its string identifier.
+     *
+     * @param name Name of the scalar feature.
+     * @return 0-based array index within {@link #SCALAR_NAMES}.
+     * @throws IllegalArgumentException If feature name is not found.
+     */
     public static int indexOf(String name) {
 
         for (int i = 0; i < SCALAR_NAMES.length; i++) {
@@ -136,15 +100,14 @@ public class FeatureExtractor implements Serializable {
         throw new IllegalArgumentException("Unknown scalar feature: " + name);
     }
 
-    // readability slots (FRES, GFI, FKGL)
+    // Readability feature offset and count
     public static final int READABILITY_OFFSET = 11;
     public static final int READABILITY_COUNT = 3;
 
-    // number of scalar features before the profile blocks
+    // Total count of scalar features before profile blocks
     public static final int SCALAR_COUNT = SCALAR_NAMES.length;
 
-    // the slots written in getFeatures (looked up by name once, so a reordering of SCALAR_NAMES can not
-    // silently write a value into the wrong feature)
+    // Pre-calculated feature index lookups
     private static final int I_LOG_WORDS = indexOf("log_word_count");
     private static final int I_LOG_CHARS = indexOf("log_char_count");
     private static final int I_FREQUENT = indexOf("frequent_word_ratio");
@@ -191,25 +154,20 @@ public class FeatureExtractor implements Serializable {
     private static final int I_POS_FIRST = indexOf("pos_noun");
     private static final int I_POS_ENTROPY = indexOf("pos_entropy");
 
-    // How many numbers every hashed / function-word profile gives to the pair vector
-    // (see profileMeasures)
+    /** Number of comparison measures produced per profile block (cosine, JSD, TV, Jaccard). */
     public static final int MEASURES_PER_BLOCK = 4;
     public static final String[] MEASURE_NAMES = { "cosine", "jsd", "tv", "jaccard" };
 
-    // z-score parameters of the profile bucket differences of the FULL pair
-    // features (the columns after the compressed ones), fitted on the training
-    // pairs
+    // Standardisation parameters fitted on training pairs and sentences
     private double[] blockDifferenceMeans;
     private double[] blockDifferenceStds;
-
-    // z-score parameters of the scalar features is fitted on the training sentences
     private double[] scalarMeans;
     private double[] scalarStds;
 
-    // word -> rank in the frequent word list (1 = most frequent)
+    // Word rank mapping for frequent word list (1 = most frequent)
     private Map<String, Integer> frequentWordRank;
 
-    // This is based on the file (NCR-Emotion-Lexicon)
+    /** Supported emotion categories from the NRC Emotion Lexicon. */
     enum WordEmotion {
         ANGER,
         ANTICIPATION,
@@ -224,45 +182,40 @@ public class FeatureExtractor implements Serializable {
     }
 
     private final Map<String, int[]> wordEmotionData = new HashMap<>();
-    // true once loadWordEmotionData() was tried, so a model loaded on another machine does not try the file again
     private boolean emotionLoadAttempted = false;
 
-    // training data information for features
+    // Corpus training metrics for IDF and TF-IDF calculation
     private final List<String> vocabulary;
     private final Map<String, Integer> documentFrequency;
     private final int corpusSize;
 
-    // How the features are computed (casing, n-gram orders, buckets, pair representation)
+    // Feature computation options
     private final FeatureConfig config;
 
-    // the profile blocks that follow the scalars: id ("char3", "pos2", "fw"), where they start and how wide they are
+    // Profile block metadata structures
     private final String[] blockIds;
     private final int[] blockOffsets;
     private final int[] blockSizes;
 
     private final SentencePair.Representation representation;
 
-    // not saved with the model, created again from config.posTagger
     private transient PosTagger posTagger;
-
-    // true once prepare() is done (not saved: a loaded extractor prepares itself again)
     private transient volatile boolean prepared = false;
 
     /**
-     * Providing the Constructor with the Training data for calculating the term
-     * frequency, IDF-TF. Uses the settings from the -D options (see FeatureConfig).
+     * Constructs a feature extractor initialized with training corpus text and default system properties.
      *
-     * @param trainingCorpus
+     * @param trainingCorpus List of training sentence strings used for IDF computation.
      */
     public FeatureExtractor(List<String> trainingCorpus) {
         this(trainingCorpus, FeatureConfig.fromSystemProperties());
     }
 
     /**
-     * Same, with the settings given.
+     * Constructs a feature extractor initialized with training corpus text and a specific configuration.
      *
-     * @param trainingCorpus the training sentences (only the vocabulary / IDF table is kept)
-     * @param config         how to compute the features
+     * @param trainingCorpus List of training sentence strings.
+     * @param config Feature configuration settings.
      */
     public FeatureExtractor(List<String> trainingCorpus, FeatureConfig config) {
 
@@ -270,7 +223,7 @@ public class FeatureExtractor implements Serializable {
         this.config = config.copy();
         this.representation = SentencePair.Representation.parse(this.config.pairRepresentation);
 
-        // the layout of the profile blocks
+        // Layout initialization for profile blocks
         List<String> ids = new ArrayList<>();
         List<Integer> sizes = new ArrayList<>();
         for (int n : this.config.charNGramOrders) {
@@ -296,7 +249,6 @@ public class FeatureExtractor implements Serializable {
             offset += blockSizes[b];
         }
 
-        // Initialise to null references
         if (trainingCorpus == null) {
             this.corpusSize = 0;
             this.documentFrequency = new HashMap<>();
@@ -307,50 +259,54 @@ public class FeatureExtractor implements Serializable {
         this.corpusSize = trainingCorpus.size();
         this.documentFrequency = new HashMap<>();
 
-        // Build vocabulary and document frequency map
+        // Process vocabulary and document frequency counters
         for (String sentence : trainingCorpus) {
 
-            // the unique words of the sentence, in the casing of the scalar features
             Set<String> uniqueWords = new HashSet<>(TextUtils.tokenize(scalarText(sentence)));
 
             for (String word : uniqueWords) {
-                // aggregate each word in the unique word List
                 documentFrequency.merge(word, 1, Integer::sum);
             }
         }
 
-        // Update the vocab and ordering by sorting
         this.vocabulary = new ArrayList<>(documentFrequency.keySet());
         Collections.sort(this.vocabulary);
     }
 
+    /**
+     * Gets a copy of the active feature configuration.
+     *
+     * @return Cloned {@link FeatureConfig} instance.
+     */
     public FeatureConfig getConfig() {
         return config.copy();
     }
 
-    // ---------------------------------------------------------------------
-    // Layout of the vectors (sentence and pair)
-    // ---------------------------------------------------------------------
-
-    /** Number of profile blocks after the scalars of a sentence vector. */
+    /** Returns the total number of profile blocks appending scalar features. */
     public int blockCount() {
         return blockIds.length;
     }
 
-    /** Ids of the blocks, in order: "char3", "pos2", "fw", ... */
+    /** Returns a cloned array of profile block identifiers. */
     public String[] blockIds() {
         return blockIds.clone();
     }
 
+    /** Gets the starting column index for a given profile block. */
     public int blockOffset(int block) {
         return blockOffsets[block];
     }
 
+    /** Gets the bucket width for a given profile block. */
     public int blockSize(int block) {
         return blockSizes[block];
     }
 
-    /** Length of the vector of ONE sentence (getFeatures): the scalars, then every block. */
+    /**
+     * Total vector size for a single sentence (scalar count + all profile block widths).
+     *
+     * @return Total integer length.
+     */
     public int sentenceVectorLength() {
         return SCALAR_COUNT + totalBlockWidth();
     }
@@ -363,44 +319,46 @@ public class FeatureExtractor implements Serializable {
         return total;
     }
 
+    /** Returns the current sentence pair representation model. */
     public SentencePair.Representation representation() {
         return representation;
     }
 
-    /** Width of the scalar part of the pair vector (depends on the pair representation). */
+    /** Returns the total column width allocated to scalar features in pair vectors. */
     public int scalarPairWidth() {
         return SCALAR_COUNT * representation.multiplier();
     }
 
-    /** Column of the first profile measure in the pair vector. */
+    /** Starting column position for profile distance measures in pair vectors. */
     public int measureOffset() {
         return scalarPairWidth();
     }
 
-    /** Column of the overall distance. */
+    /** Column index storing the overall calculated feature distance. */
     public int distanceColumn() {
         return scalarPairWidth() + blockIds.length * MEASURES_PER_BLOCK;
     }
 
-    /**
-     * Number of columns of the COMPRESSED pair vector: the scalar part, 4 measures per
-     * profile block and the overall distance.
-     */
+    /** Total column count of the compressed pair feature vector. */
     public int compressedPairCount() {
         return distanceColumn() + 1;
     }
 
-    /** Number of columns of the FULL pair vector (the compressed ones + every bucket difference). */
+    /** Total column count of the full pair feature vector including raw bucket differences. */
     public int fullPairCount() {
         return compressedPairCount() + totalBlockWidth();
     }
 
-    /** The width of the pair vector this extractor makes (compressed, or full when the config says so). */
+    /** Returns the actual width of pair vectors generated by this extractor based on settings. */
     public int pairVectorLength() {
         return config.fullBlockDifferences ? fullPairCount() : compressedPairCount();
     }
 
-    /** Names of the columns of the pair vector (compressed part, then the bucket differences if full). */
+    /**
+     * Generates descriptive column names for all feature dimensions in pair vectors.
+     *
+     * @return Array of column header strings.
+     */
     public String[] pairFeatureNames() {
 
         String[] names = new String[pairVectorLength()];
@@ -430,10 +388,10 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * The pair vector columns that belong to a feature group (used by the ablation study to
-     * remove or keep a group): the scalar columns of the group in every part of the
-     * pair representation, the measures of the profile blocks the group owns and
-     * (full features) their bucket differences.
+     * Finds column indices corresponding to a specific {@link FeatureGroup} for ablation testing.
+     *
+     * @param group Target feature group.
+     * @return Array of column indices assigned to the group.
      */
     public int[] pairColumns(FeatureGroup group) {
 
@@ -469,9 +427,9 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * The columns that hold |z-score difference| of every scalar feature, the overall distance is
-     * calculated from them again when a group is removed. null when the pair representation
-     * has no such part (MEAN, RELATIVE).
+     * Retrieves column indices corresponding to absolute z-score differences of scalar features.
+     *
+     * @return Array of column indices, or {@code null} if representation lacks absolute differences.
      */
     public int[] absoluteDifferenceColumns() {
 
@@ -487,15 +445,8 @@ public class FeatureExtractor implements Serializable {
         return columns;
     }
 
-    // ---------------------------------------------------------------------
-    // Lexicons
-    // ---------------------------------------------------------------------
-
-    /**
-     * Loads the frequent word list (the order of the file = the frequency rank).
-     */
+    /** Reads and indexes the frequent words file to determine word rank. */
     public synchronized void loadFrequentWords() {
-        // O(1) for add, search & remove
         frequentWordRank = new HashMap<>();
 
         try (BufferedReader reader = new BufferedReader(new FileReader(frequentWordsFilePath))) {
@@ -518,18 +469,11 @@ public class FeatureExtractor implements Serializable {
         }
     }
 
-    /**
-     * Loads NRC-Emotion data to the memory for extracting features further.
-     *
-     */
+    /** Reads and indexes the NRC Emotion Lexicon dataset. */
     public synchronized void loadWordEmotionData() {
 
         emotionLoadAttempted = true;
 
-        /*
-         * Reading from the path, where every line has 3 parts (word emotion
-         * binaryValue)
-         */
         try (BufferedReader reader = new BufferedReader(new FileReader(sentimentAnalysisFilePath))) {
 
             String line;
@@ -538,9 +482,8 @@ public class FeatureExtractor implements Serializable {
 
                 String[] parts = line.split("\\s+");
 
-                // Expecting 3 parts: word, emotion, association
                 if (parts.length != 3) {
-                    continue; // Skipping malformed lines
+                    continue;
                 }
 
                 String word = parts[0].toLowerCase();
@@ -553,20 +496,17 @@ public class FeatureExtractor implements Serializable {
                     wordEmotion = WordEmotion.valueOf(emotion);
 
                 } catch (IllegalArgumentException e) {
-                    continue; // Skipping unknown emotions
+                    continue;
                 }
 
-                // scores are all the binaryValues to one word.
                 int[] scores = wordEmotionData.get(word);
 
                 if (scores == null) {
-
                     scores = new int[WordEmotion.values().length];
                     wordEmotionData.put(word, scores);
                 }
 
                 scores[wordEmotion.ordinal()] = association;
-
             }
 
         } catch (FileNotFoundException e) {
@@ -579,13 +519,10 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Loads the lexicons once, before the (possibly many threaded) feature extraction starts.
-     * After the model is trained they are part of the saved extractor, so a model
-     * on another machine (the web app, the TIRA run) does not need the dataset folder.
+     * Prepares resources (lexicons, POS tagger) once before feature extraction starts.
      */
     public void prepare() {
 
-        // the common case (every call of getFeatures) does not take the lock
         if (prepared) {
             return;
         }
@@ -611,42 +548,36 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Getting the emotion scores for each word in a sentence
+     * Extracts raw NRC emotion scores across tokens in a sentence.
      *
-     * @param sentence Current sentence
-     * @return scores values for each emotion
+     * @param tokens Array of sentence tokens.
+     * @return Cumulative scores array for each emotion category.
      */
     private double[] getEmotionScores(String[] tokens) {
 
         double[] emotionScores = new double[WordEmotion.values().length];
 
         for (String token : tokens) {
-
-            // getting the words only as the file(NCR-Word-emotion) has words
             int[] scores = wordEmotionData.get(cleanLower(token));
 
             if (scores != null) {
-
                 for (int i = 0; i < scores.length; i++) {
                     emotionScores[i] += scores[i];
                 }
             }
         }
 
-        // we are expecting something like : [2,0,5,....]
         return emotionScores;
     }
 
     /**
-     * Converting the emotion scores array into a single value, so that I can work
-     * with it better
+     * Calculates average non-zero emotion score across emotional dimensions.
      *
-     * @param emotionScores array of scores of emotions
-     * @return double average value of the emotion scores array
+     * @param emotionScores Array of accumulated emotion scores.
+     * @return Mean score across active emotion categories.
      */
     private double getAverageEmotionScore(double[] emotionScores) {
 
-        // get the ave
         double totalScore = 0.0;
         int count = 0;
 
@@ -660,7 +591,12 @@ public class FeatureExtractor implements Serializable {
         return count > 0 ? totalScore / count : 0.0;
     }
 
-    /** Lower-case token with only its letters and apostrophes (no regex, this runs for every token). */
+    /**
+     * Strips non-alphabetic characters (preserving inner apostrophes) and converts token to lowercase.
+     *
+     * @param token Input word token.
+     * @return Lowercase string containing letters and apostrophes only.
+     */
     private static String cleanLower(String token) {
 
         StringBuilder sb = null;
@@ -681,52 +617,42 @@ public class FeatureExtractor implements Serializable {
         return (sb == null ? token : sb.toString()).toLowerCase(Locale.ROOT);
     }
 
-    // ---------------------------------------------------------------------
-    // Casing
-    // ---------------------------------------------------------------------
-
-    /** The text the SCALAR features see (original unless the casing is LOWERCASE). */
+    /**
+     * Resolves text input casing strategy for scalar feature calculation.
+     *
+     * @param sentence Raw input sentence string.
+     * @return Sentence string adjusted for scalar feature processing.
+     */
     private String scalarText(String sentence) {
-
         String text = sentence == null ? "" : sentence.trim();
         return config.casing == FeatureConfig.Casing.LOWERCASE ? TextUtils.applyCasing(text, config.casing) : text;
     }
 
-    /** The text the profiles (character n-grams, function words) see (lower-case unless PRESERVE). */
+    /**
+     * Resolves text input casing strategy for profile block processing.
+     *
+     * @param sentence Raw input sentence string.
+     * @return Sentence string adjusted for profile block generation.
+     */
     private String profileText(String sentence) {
-
         String text = sentence == null ? "" : sentence.trim();
         return config.casing == FeatureConfig.Casing.PRESERVE ? text : text.toLowerCase(Locale.ROOT);
     }
 
-    // ---------------------------------------------------------------------
-    // Profiles
-    // ---------------------------------------------------------------------
-
     /**
-     * Hashed Character N-Gram Implementation
-     * To automatically handle unsceen words in n-grams, which becomes predictable
+     * Calculates hashed character n-gram frequencies.
      *
-     * @param text    the text
-     * @param n       length of the n-grams (1 to 5)
-     * @param buckets number of hash buckets (the length of the profile)
-     * @param typed   true = only the affix and punctuation n-grams are counted
-     *                (Sapkota et al., 2015: a character n-gram that is in the middle of a word
-     *                mostly carries the topic, the one at the edge of a word (prefix, suffix)
-     *                or with a punctuation mark carries the style)
-     * @return relative frequency of every bucket (the buckets add up to 1, or all 0 when the text
-     *         is shorter than n)
+     * @param text Input text string.
+     * @param n N-gram length (1 to 5).
+     * @param buckets Number of hash buckets.
+     * @param typed {@code true} to restrict counts to affix and punctuation n-grams.
+     * @return Normalized relative frequency array across buckets.
      */
     double[] computeCharNGrams(String text, int n, int buckets, boolean typed) {
 
         double[] nGramVector = new double[buckets];
         int total = 0;
 
-        /*
-         * Instead of relying on another corpus to extract the N-Gram, am relying on
-         * hashes
-         * For easy computation.
-         */
         for (int i = 0; i + n <= text.length(); i++) {
 
             if (typed && !isAffixOrPunctuation(text, i, i + n)) {
@@ -738,7 +664,6 @@ public class FeatureExtractor implements Serializable {
             total++;
         }
 
-        // normalise the feature vector
         if (total > 0) {
             for (int b = 0; b < buckets; b++) {
                 nGramVector[b] /= total;
@@ -749,19 +674,22 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * The n-gram text[from, to) is a PUNCTUATION n-gram (it has a mark that is not a letter, digit or
-     * space) or an AFFIX n-gram (it starts at the beginning of a word, ends at the end of a word,
-     * or has a space in it). The other ones (inside a word) are left out by the typed profile.
+     * Determines whether a substring n-gram corresponds to an affix or punctuation boundary.
+     *
+     * @param text Complete sentence text.
+     * @param from Substring start index.
+     * @param to Substring end index.
+     * @return {@code true} if sub-sequence touches whitespace, punctuation, or word boundaries.
      */
     private static boolean isAffixOrPunctuation(String text, int from, int to) {
 
         for (int i = from; i < to; i++) {
             char c = text.charAt(i);
             if (!Character.isLetterOrDigit(c) && !Character.isWhitespace(c)) {
-                return true; // punctuation (beginning, middle or end)
+                return true;
             }
             if (Character.isWhitespace(c)) {
-                return true; // space prefix / space suffix
+                return true;
             }
         }
 
@@ -772,11 +700,12 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Hashed n-gram profile of the POS tags of a sentence.
+     * Computes hashed n-gram profiles over sentence POS tags.
      *
-     * For n = 1 every tag has its OWN bucket (the tag distribution, no collisions). For n > 1 the sentence
-     * is padded with a start and an end marker, so "how does a sentence begin / end" is part
-     * of the profile.
+     * @param tags Array of integer POS tag values.
+     * @param n N-gram order.
+     * @param buckets Number of hash buckets.
+     * @return Normalized POS tag profile array.
      */
     double[] computePosNGrams(int[] tags, int n, int buckets) {
 
@@ -792,9 +721,9 @@ public class FeatureExtractor implements Serializable {
         }
 
         int[] padded = new int[tags.length + 2];
-        padded[0] = PosTagset.COUNT; // start of the sentence
+        padded[0] = PosTagset.COUNT;
         System.arraycopy(tags, 0, padded, 1, tags.length);
-        padded[padded.length - 1] = PosTagset.COUNT + 1; // end of the sentence
+        padded[padded.length - 1] = PosTagset.COUNT + 1;
 
         int total = 0;
         for (int i = 0; i + n <= padded.length; i++) {
@@ -805,6 +734,13 @@ public class FeatureExtractor implements Serializable {
         return normalise(profile, total);
     }
 
+    /**
+     * Normalizes a raw count array into a relative frequency distribution vector.
+     *
+     * @param profile Raw profile vector.
+     * @param total Total token occurrence count.
+     * @return Normalized distribution array.
+     */
     private static double[] normalise(double[] profile, int total) {
 
         if (total > 0) {
@@ -816,106 +752,24 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * 4 numbers that say how alike two profiles are:
-     * cosine (1 = same direction), Jensen-Shannon distance (0 = same, 1 = nothing in common),
-     * total variation (half the L1 distance, the Delta of Burrows with relative frequencies) and the
-     * overlap of the buckets that are used (Jaccard of the supports).
+     * Calculates Type-Token Ratio (TTR) measuring lexical diversity.
      *
-     * A profile without a single n-gram (a sentence shorter than n) can not be compared:
-     * the similarities are 0 and the distances 1, like the cosine always was.
-     */
-    static void profileMeasures(double[] a, double[] b, int offset, int size, double[] out, int outPos) {
-
-        double dot = 0.0;
-        double normA = 0.0;
-        double normB = 0.0;
-        double totalVariation = 0.0;
-        double divergence = 0.0;
-        int inBoth = 0;
-        int inEither = 0;
-        double sumA = 0.0;
-        double sumB = 0.0;
-
-        for (int i = offset; i < offset + size; i++) {
-
-            double p = a[i];
-            double q = b[i];
-
-            dot += p * q;
-            normA += p * p;
-            normB += q * q;
-            sumA += p;
-            sumB += q;
-            totalVariation += Math.abs(p - q);
-
-            double m = (p + q) / 2.0;
-            if (p > 0.0) {
-                divergence += 0.5 * p * log2(p / m);
-            }
-            if (q > 0.0) {
-                divergence += 0.5 * q * log2(q / m);
-            }
-
-            if (p > 0.0 || q > 0.0) {
-                inEither++;
-                if (p > 0.0 && q > 0.0) {
-                    inBoth++;
-                }
-            }
-        }
-
-        if (sumA == 0.0 || sumB == 0.0) {
-            out[outPos] = 0.0;
-            out[outPos + 1] = 1.0;
-            out[outPos + 2] = 1.0;
-            out[outPos + 3] = 0.0;
-            return;
-        }
-
-        out[outPos] = dot / (Math.sqrt(normA) * Math.sqrt(normB));
-        out[outPos + 1] = Math.sqrt(Math.max(0.0, Math.min(1.0, divergence))); // distance, 0..1
-        out[outPos + 2] = Math.min(1.0, totalVariation / 2.0);
-        out[outPos + 3] = inEither == 0 ? 0.0 : (double) inBoth / inEither;
-    }
-
-    private static double log2(double x) {
-        return Math.log(x) / Math.log(2.0);
-    }
-
-    // ---------------------------------------------------------------------
-    // Scalar features
-    // ---------------------------------------------------------------------
-
-    /**
-     * Type-token ratio (TTR) is a measure of lexical diversity in a text.
-     * It is calculated as the ratio of the number of unique words (types)
-     * to the total number of words (tokens) in a given text.
-     *
-     *
-     * @param words the lower-cased words of the sentence
-     * @return 1.0 means all words are unique, 0.0 means all words are the same
+     * @param words Lowercase word token list.
+     * @return Double ratio (unique words / total words).
      */
     private double calcTypeTokenRatio(List<String> words) {
 
-        // checking the repetion of words in a sentence.
-        double typeTokenRatio = 0.0;
         if (words.isEmpty()) {
-            return typeTokenRatio; // Return 0 if the sentence has no words
-        } else {
-            // getting the unique words in a sentence and dividing by the total number of
-            // words
-            typeTokenRatio = (double) new HashSet<>(words).size() / words.size();
+            return 0.0;
         }
-
-        return typeTokenRatio;
-
+        return (double) new HashSet<>(words).size() / words.size();
     }
 
     /**
-     * Calculating the punctuation variety in a sentence.
+     * Calculates punctuation variety as a fraction of tracked punctuation marks present.
      *
-     * @param sentence
-     * @return
+     * @param sentence Target sentence text.
+     * @return Proportion of distinct tracked punctuation marks used.
      */
     private double punctuationVariety(String sentence) {
 
@@ -933,22 +787,15 @@ public class FeatureExtractor implements Serializable {
             }
         }
 
-        // fraction of the punctuation marks of interest used in this sentence (0 to 1)
         return (double) uniquePunctuation.size() / PUNCTUATION.length;
     }
 
     /**
-     * Calculates the Flesch Reading Ease Score (FRES).
+     * Calculates Flesch Reading Ease Score (FRES).
      *
-     * Formula:
-     * FRES = 206.835 - (1.015 * ASL) - (84.6 * ASW)
-     *
-     * ASL = Average sentence length in words.
-     * ASW = Average syllables per word.
-     *
-     * @param words      the words of the sentence
-     * @param syllables  total syllables of the words
-     * @return Flesch Reading Ease score
+     * @param words Total sentence word count.
+     * @param syllables Total syllable count across words.
+     * @return Double readability score.
      */
     private double calcFleschReadingEaseScore(int words, int syllables) {
 
@@ -956,32 +803,18 @@ public class FeatureExtractor implements Serializable {
             return 0.0;
         }
 
-        // Processing one sentence at a time
         double averageWordsPerSentence = words;
         double averageSyllablesPerWord = (double) syllables / words;
 
-        return 206.835
-                - (1.015 * averageWordsPerSentence)
-                - (84.6 * averageSyllablesPerWord);
+        return 206.835 - (1.015 * averageWordsPerSentence) - (84.6 * averageSyllablesPerWord);
     }
 
     /**
-     * Gunning Fog Index (GFI) is a readability test that estimates the years of
-     * formal education needed to understand a text on the first reading.
+     * Calculates Gunning Fog Index (GFI) estimating formal education years required.
      *
-     * Formula:
-     * Fog = 0.4 * (ASL + 100 * (ComplexWords / TotalWords))
-     *
-     * ASL = Average sentence length in words.
-     * Complex words = Words containing more than three syllables.
-     *
-     *
-     * Reference:
-     * https://www.researchgate.net/publication/392521274_Readability_Analysis_with_the_Gunning_Fog_Index_Guilford_College_Writing_Handbook
-     *
-     * @param words        the words of the sentence
-     * @param complexWords words with 3 or more syllables
-     * @return
+     * @param words Total sentence word count.
+     * @param complexWords Count of complex words ($\ge 3$ syllables).
+     * @return Double index score.
      */
     private double calcGunningFogIndex(int words, int complexWords) {
 
@@ -989,21 +822,18 @@ public class FeatureExtractor implements Serializable {
             return 0.0;
         }
 
-        double averageWordsPerSentence = words; // Since we are processing one sentence at a time
+        double averageWordsPerSentence = words;
         double percentageComplexWords = ((double) complexWords / words) * 100;
 
         return 0.4 * (averageWordsPerSentence + percentageComplexWords);
     }
 
     /**
-     * Flench Kincaid Grade Level (FKGL) is a readability test that indicates the
-     * U.S. school grade level required to comprehend a text.
+     * Calculates Flesch-Kincaid Grade Level (FKGL) indicating required school grade level.
      *
-     * Refence: https://arxiv.org/html/2508.19221v1
-     *
-     * @param words     the words of the sentence
-     * @param syllables total syllables of the words
-     * @return
+     * @param words Total sentence word count.
+     * @param syllables Total syllable count across words.
+     * @return Double grade level score.
      */
     private double calcFleschKincaidGradeLevel(int words, int syllables) {
 
@@ -1011,7 +841,7 @@ public class FeatureExtractor implements Serializable {
             return 0.0;
         }
 
-        double averageWordsPerSentence = words; // Since we are processing one sentence at a time
+        double averageWordsPerSentence = words;
         double averageSyllablesPerWord = (double) syllables / words;
 
         return (0.39 * averageWordsPerSentence) + (11.8 * averageSyllablesPerWord) - 15.59;
@@ -1021,26 +851,18 @@ public class FeatureExtractor implements Serializable {
             Arrays.asList("and", "but", "so", "or", "because", "yet", "then", "though", "although"));
 
     /**
-     * Getting the features from each sentence
-     * This defines the features used in the project All together
+     * Extracts full feature vector (scalar metrics followed by profile blocks) for a given sentence.
      *
-     * @param sentence Current sentence that am extracting features from.
-     * @return array of features for the given sentence: the SCALAR_COUNT scalar features (names:
-     *         SCALAR_NAMES), then the profile blocks (see blockIds()): hashed character n-grams,
-     *         hashed POS n-grams, function word frequencies. A profile is sparse for a short
-     *         sentence, that is why the pair vector only gets a few numbers
-     *         (profileMeasures) out of every profile, unless the full features are asked for.
-     *
+     * @param sentence Target input sentence string.
+     * @return Array of double feature values.
      */
     public double[] getFeatures(String sentence) {
 
         prepare();
 
-        // the casing policy: the scalar features and the profiles can see different texts (HYBRID)
         String text = scalarText(sentence);
         String profile = profileText(sentence);
 
-        // typographic apostrophes (don’t) are normalised, so they are one word like don't
         String wordText = text.replace('’', '\'');
 
         String[] tokens = wordText.isEmpty() ? new String[0] : wordText.split("\\s+");
@@ -1053,7 +875,6 @@ public class FeatureExtractor implements Serializable {
         double charDensity = Math.max(nChars, 1);
         double wordDensity = Math.max(nWords, 1);
 
-        // counting frequent words (of the google list) and the emotion words
         int frequentCount = 0;
 
         for (String token : tokens) {
@@ -1062,8 +883,6 @@ public class FeatureExtractor implements Serializable {
             }
         }
 
-        // counting puctions, uppercase (first words in a sentence or repr nouns),
-        // letters and digits, every mark of its own, and the layout habits
         int punctuationCount = 0;
         int digitsCount = 0;
         int letterCount = 0;
@@ -1080,17 +899,12 @@ public class FeatureExtractor implements Serializable {
                 nonAscii++;
             }
 
-            if (Character.isDigit(ch)) { // digit count
+            if (Character.isDigit(ch)) {
                 digitsCount++;
-            } else if (Character.isLetter(ch)) { // letters
+            } else if (Character.isLetter(ch)) {
 
                 letterCount++;
 
-                /*
-                 * upper case can be useful for identifying:
-                 * (1) First words of the sentence
-                 * (2) Nouns and etc.
-                 */
                 if (Character.isUpperCase(ch)) {
                     upperCaseCount++;
                 }
@@ -1107,9 +921,8 @@ public class FeatureExtractor implements Serializable {
                     commas++;
                     break;
                 case '.': {
-                    // a run of dots is ONE ellipsis, not several periods
                     if (previous == '.') {
-                        break; // already counted at the start of the run
+                        break;
                     }
                     int run = 1;
                     while (i + run < nChars && wordText.charAt(i + run) == '.') {
@@ -1166,12 +979,10 @@ public class FeatureExtractor implements Serializable {
                     break;
             }
 
-            // repeated marks (!!, ??, ,,) = the start of a run of the same mark
             if ((ch == '!' || ch == '?' || ch == ',' || ch == ';' || ch == ':') && next == ch && previous != ch) {
                 repeated++;
             }
 
-            // spacing: a double space, a space before a mark, no space after a mark that is followed by a letter
             if (ch == ' ' && next == ' ') {
                 spacingAnomalies++;
             }
@@ -1183,33 +994,13 @@ public class FeatureExtractor implements Serializable {
             }
         }
 
-        /*
-         * It is worth considering typos in text from person to person
-         * Such as Incorrect Formatting (ALL-UPPER caps words, extra spacings, and so
-         * on)
-         */
-
-        // the words: letters, digits and inner apostrophes, in the casing of the scalar features
         List<String> words = TextUtils.tokenize(wordText);
         int nW = words.size();
         double wDensity = Math.max(nW, 1);
 
-        // Sentiment Scores = Average of the Scores
-        // All words from + file are equal to 1, All from - are equal to -1, else = 0.
-        /*
-         * These values are from a sentiment files, which will be used to determine the
-         * sentiment score
-         * They are represented using binary scores (0/1)
-         *
-         * I process these values to give me a single sentence sentiment score instead.
-         */
-
-        // Word Emotion Scores
         double[] emotionScores = getEmotionScores(tokens);
-        // using the average emotion score instead to reduce feature space
         double averageEmotionScore = getAverageEmotionScore(emotionScores);
 
-        // ---- one pass over the words: lengths, vocabulary, function words, syllables, capitals
         List<String> lowerWords = new ArrayList<>(nW);
         Map<String, Integer> wordCounts = new HashMap<>();
         double[] functionWordCounts = config.functionWordProfile ? new double[FunctionWords.COUNT] : null;
@@ -1232,7 +1023,6 @@ public class FeatureExtractor implements Serializable {
             lowerWords.add(lower);
             wordCounts.merge(lower, 1, Integer::sum);
 
-            // length in letters and digits (the apostrophes are not part of the length)
             int length = 0;
             int upperLetters = 0;
             int letters = 0;
@@ -1278,21 +1068,16 @@ public class FeatureExtractor implements Serializable {
                 contractions++;
             }
 
-            // readability: syllables of the word without its apostrophes
             int wordSyllables = TextUtils.countSyllables(word.replace("'", ""));
             syllables += wordSyllables;
 
-            // complex words are defined as words with 3 or more syllables
-            // there are exclusions to be considered. except for proper nouns, familiar
-            // jargon and compound words.
             if (wordSyllables >= 3) {
                 complexWords++;
             }
 
-            // word rarity: log2 of the rank in the frequent word list (a word that is not in the list is rarer than all of them)
             if (frequentWordRank != null) {
                 Integer rank = frequentWordRank.get(lower);
-                freqClassSum += log2(1.0 + (rank == null ? frequentWordRank.size() + 1 : rank));
+                freqClassSum += InformationTheory.log2(1.0 + (rank == null ? frequentWordRank.size() + 1 : rank));
             }
 
             if (addFunctionWord(lower, functionWordCounts)) {
@@ -1300,10 +1085,9 @@ public class FeatureExtractor implements Serializable {
             }
         }
 
-        // vocabulary richness of the sentence
         int hapax = 0;
-        double repeatPairs = 0.0; // sum of n_i * (n_i - 1)
-        double yuleSum = 0.0; // sum of i^2 * V_i, over the words that are used i times
+        double repeatPairs = 0.0;
+        double yuleSum = 0.0;
         for (int count : wordCounts.values()) {
             if (count == 1) {
                 hapax++;
@@ -1315,22 +1099,20 @@ public class FeatureExtractor implements Serializable {
         double meanLength = nW == 0 ? 0.0 : lengthSum / nW;
         double lengthVariance = nW == 0 ? 0.0 : Math.max(0.0, lengthSquares / nW - meanLength * meanLength);
 
-        // ---- the tokens and tags of the syntax features
         List<String> posTokens = TextUtils.tokenizeWithPunctuation(wordText);
         int[] tags = posTagger.tag(posTokens);
 
-        // ---- the scalar features
-        scalarFeatures[I_LOG_WORDS] = Math.log1p(nWords); // sentence length (words)
-        scalarFeatures[I_LOG_CHARS] = Math.log1p(nChars); // sentence length (chars)
-        scalarFeatures[I_FREQUENT] = frequentCount / wordDensity; // frequent-word ratio
-        scalarFeatures[I_PUNCT_DENSITY] = punctuationCount / charDensity; // punctuation density
-        scalarFeatures[I_DIGIT] = digitsCount / charDensity; // digit ratio
-        scalarFeatures[I_UPPER] = upperCaseCount / charDensity; // uppercase ratio
-        scalarFeatures[I_AVG_WORD] = letterCount / wordDensity; // average word length
-        scalarFeatures[I_TFIDF] = calcTFIDFScore(words); // mean TF-IDF
-        scalarFeatures[I_EMOTION] = averageEmotionScore / wordDensity; // emotion
-        scalarFeatures[I_TTR] = calcTypeTokenRatio(lowerWords); // type-token ratio
-        scalarFeatures[I_PUNCT_VARIETY] = punctuationVariety(wordText); // punctuation variety
+        scalarFeatures[I_LOG_WORDS] = Math.log1p(nWords);
+        scalarFeatures[I_LOG_CHARS] = Math.log1p(nChars);
+        scalarFeatures[I_FREQUENT] = frequentCount / wordDensity;
+        scalarFeatures[I_PUNCT_DENSITY] = punctuationCount / charDensity;
+        scalarFeatures[I_DIGIT] = digitsCount / charDensity;
+        scalarFeatures[I_UPPER] = upperCaseCount / charDensity;
+        scalarFeatures[I_AVG_WORD] = letterCount / wordDensity;
+        scalarFeatures[I_TFIDF] = calcTFIDFScore(words);
+        scalarFeatures[I_EMOTION] = averageEmotionScore / wordDensity;
+        scalarFeatures[I_TTR] = calcTypeTokenRatio(lowerWords);
+        scalarFeatures[I_PUNCT_VARIETY] = punctuationVariety(wordText);
         scalarFeatures[I_FRES] = calcFleschReadingEaseScore(nW, syllables);
         scalarFeatures[I_FOG] = calcGunningFogIndex(nW, complexWords);
         scalarFeatures[I_FKGL] = calcFleschKincaidGradeLevel(nW, syllables);
@@ -1360,7 +1142,7 @@ public class FeatureExtractor implements Serializable {
         scalarFeatures[I_REPEATED] = repeated / wordDensity;
 
         scalarFeatures[I_ALL_CAPS] = allCaps / wDensity;
-        scalarFeatures[I_CAPITALIZED] = capitalised / Math.max(nW - 1, 1);
+        scalarFeatures[I_CAPITALIZED] = (double) capitalised / Math.max(nW - 1, 1);
         scalarFeatures[I_STARTS_CAPITAL] = startsWithCapital(wordText) ? 1.0 : 0.0;
         scalarFeatures[I_ENDS_TERMINAL] = endsWithTerminal(wordText) ? 1.0 : 0.0;
         scalarFeatures[I_STARTS_DIALOGUE] = startsWithDialogue(wordText) ? 1.0 : 0.0;
@@ -1371,7 +1153,6 @@ public class FeatureExtractor implements Serializable {
 
         scalarFeatures[I_CONTRACTION] = contractions / wDensity;
 
-        // syntax: the share of each coarse tag (OTHER is not a feature) and the entropy of the tag distribution
         double[] tagShare = new double[PosTagset.COUNT];
         for (int tag : tags) {
             tagShare[tag]++;
@@ -1383,13 +1164,11 @@ public class FeatureExtractor implements Serializable {
                 scalarFeatures[I_POS_FIRST + tag] = share;
             }
             if (share > 0.0) {
-                entropy -= share * log2(share);
+                entropy -= share * InformationTheory.log2(share);
             }
         }
-        // divided by the largest possible entropy, so the feature is between 0 and 1
-        scalarFeatures[I_POS_ENTROPY] = entropy / log2(PosTagset.COUNT);
+        scalarFeatures[I_POS_ENTROPY] = entropy / InformationTheory.log2(PosTagset.COUNT);
 
-        // ---- the profile blocks
         double[] features = new double[sentenceVectorLength()];
         System.arraycopy(scalarFeatures, 0, features, 0, SCALAR_COUNT);
 
@@ -1404,7 +1183,7 @@ public class FeatureExtractor implements Serializable {
             } else if (id.startsWith("pos")) {
                 block = computePosNGrams(tags, id.charAt(3) - '0', blockSizes[b]);
 
-            } else { // fw
+            } else {
                 block = normalise(functionWordCounts, nW);
             }
 
@@ -1412,14 +1191,15 @@ public class FeatureExtractor implements Serializable {
         }
 
         return features;
-
     }
 
     /**
-     * Counts a word in the function word profile.
-     * Contractions are split: "didn't" is "did" + "n't", "I'll" is "i" + "'ll".
+     * Checks and increments occurrences in the function word counts profile.
+     * Splits contractions into base word and clitic pieces where applicable.
      *
-     * @return true when the word contains at least one function word
+     * @param lower Lowercase word token.
+     * @param counts Destination count array for function words.
+     * @return {@code true} if word contains at least one function word piece.
      */
     private static boolean addFunctionWord(String lower, double[] counts) {
 
@@ -1442,7 +1222,6 @@ public class FeatureExtractor implements Serializable {
         if (lower.endsWith("n't")) {
             head = lower.substring(0, lower.length() - 3);
             clitic = "n't";
-            // can't, won't, shan't
             if (head.equals("ca")) {
                 head = "can";
             } else if (head.equals("wo")) {
@@ -1474,6 +1253,12 @@ public class FeatureExtractor implements Serializable {
         return any;
     }
 
+    /**
+     * Checks if sentence starts with a capital letter.
+     *
+     * @param text Sentence text string.
+     * @return {@code true} if first alphabetic character is uppercase.
+     */
     private static boolean startsWithCapital(String text) {
 
         for (int i = 0; i < text.length(); i++) {
@@ -1488,7 +1273,12 @@ public class FeatureExtractor implements Serializable {
         return false;
     }
 
-    /** The sentence ends with . ! ? or an ellipsis (a closing quote or bracket after it does not count). */
+    /**
+     * Checks if sentence ends with a terminal punctuation mark.
+     *
+     * @param text Sentence text string.
+     * @return {@code true} if trailing character sequence ends in terminal mark.
+     */
     private static boolean endsWithTerminal(String text) {
 
         int end = text.length() - 1;
@@ -1510,7 +1300,12 @@ public class FeatureExtractor implements Serializable {
         return last == '.' || last == '!' || last == '?' || last == '…';
     }
 
-    /** The sentence starts with a quotation mark or a dash (a line of dialogue). */
+    /**
+     * Checks if sentence starts with dialogue markers or quotation characters.
+     *
+     * @param text Sentence text string.
+     * @return {@code true} if leading character is a dialogue or quotation mark.
+     */
     private static boolean startsWithDialogue(String text) {
 
         if (text.isEmpty()) {
@@ -1523,23 +1318,24 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Inverse Document Frequency
-     * Measuring how rare(Increases) or common(Reduces) a words occurs.
+     * Calculates Inverse Document Frequency (IDF) score for a term over the corpus.
      *
-     * @param term Word that I would like to get the IDF from.
-     * @return the IDF value
+     * @param term Target word string.
+     * @return Smoothed double IDF value.
      */
     private double calculateIDF(String term) {
         int docFreq = documentFrequency.getOrDefault(term, 0);
-
-        // Adding 1 to avoid division by zero And to smooth
         return Math.log((double) (corpusSize + 1) / (docFreq + 1)) + 1;
     }
 
+    /**
+     * Calculates array of individual TF-IDF weights for each word in a list.
+     *
+     * @param words Input word token list.
+     * @return Array of double TF-IDF values.
+     */
     private double[] calcTFIDF(List<String> words) {
 
-        // precomputing the term frequency for the sentence
-        // for efficiency.
         Map<String, Integer> termCounts = new HashMap<>();
         for (String word : words) {
             termCounts.merge(word, 1, Integer::sum);
@@ -1548,7 +1344,7 @@ public class FeatureExtractor implements Serializable {
         double[] tfidf = new double[words.size()];
         for (int i = 0; i < words.size(); i++) {
             String term = words.get(i);
-            double tf = (double) termCounts.get(term) / words.size(); // O(1) now
+            double tf = (double) termCounts.get(term) / words.size();
             double idf = calculateIDF(term);
             tfidf[i] = tf * idf;
         }
@@ -1556,10 +1352,10 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Averaged TF-IDF score for a sentence
+     * Calculates average TF-IDF score for a sentence.
      *
-     * @param words the words of the sentence
-     * @return
+     * @param words Input word token list.
+     * @return Mean double TF-IDF score across sentence tokens.
      */
     private double calcTFIDFScore(List<String> words) {
 
@@ -1569,22 +1365,19 @@ public class FeatureExtractor implements Serializable {
             totalScore += score;
         }
 
-        // a sentence without tokens has no scores, dividing by 0 would give NaN
         if (tfidfScores.length == 0) {
             return 0.0;
         }
 
-        return totalScore / tfidfScores.length; // Average TF-IDF score
+        return totalScore / tfidfScores.length;
     }
 
-    // TODO: Refactor the calculation methods.
-
     /**
-     * Absolute difference between 2 vectors
+     * Calculates absolute point-by-point differences between two feature vectors.
      *
-     * @param features1 features from 1st sentence
-     * @param features2 features from 2nd sentence
-     * @return array of distances
+     * @param features1 First feature array.
+     * @param features2 Second feature array.
+     * @return Array of absolute differences.
      */
     public double[] calcAbsDifference(double[] features1, double[] features2) {
 
@@ -1602,21 +1395,31 @@ public class FeatureExtractor implements Serializable {
         return absDifferenceArray;
     }
 
-    // ---------------------------------------------------------------------
-    // z-scores
-    // ---------------------------------------------------------------------
+    /**
+     * The pair vectors of all neighbouring sentences of a document. Every sentence is extracted once,
+     * although it takes part in two pairs.
+     *
+     * @param sentences the sentences of one document, in order
+     * @return one pair vector per boundary, {@code sentences - 1} rows
+     */
+    public double[][] neighbourPairVectors(List<String> sentences) {
+
+        List<double[]> raw = new ArrayList<>(sentences.size());
+        for (String sentence : sentences) {
+            raw.add(getFeatures(sentence));
+        }
+
+        double[][] matrix = new double[Math.max(0, sentences.size() - 1)][];
+        for (int i = 0; i < matrix.length; i++) {
+            matrix[i] = pairVector(raw.get(i), raw.get(i + 1));
+        }
+        return matrix;
+    }
 
     /**
-     * Fits the z-score parameters (mean and standard deviation) of the scalar
-     * features.
+     * Fits standard deviation and mean parameters across training sentence scalar features.
      *
-     * Use TRAINING sentences only, so nothing from the validation/test data leaks
-     * into the model.
-     * The profile blocks are not standardised, they are compared using the profile
-     * measures (cosine, ...) instead.
-     *
-     * @param trainingFeatures feature vectors (from getFeatures) of the training
-     *                         sentences
+     * @param trainingFeatures List of feature vectors extracted from training data.
      */
     public void fitScaler(List<double[]> trainingFeatures) {
 
@@ -1624,49 +1427,20 @@ public class FeatureExtractor implements Serializable {
             throw new IllegalArgumentException("Cannot fit the scaler without training features");
         }
 
-        scalarMeans = new double[SCALAR_COUNT];
-        scalarStds = new double[SCALAR_COUNT];
-
-        int count = trainingFeatures.size();
-
-        // means
-        for (double[] features : trainingFeatures) {
-            for (int i = 0; i < SCALAR_COUNT; i++) {
-                scalarMeans[i] += features[i];
-            }
-        }
-
-        for (int i = 0; i < SCALAR_COUNT; i++) {
-            scalarMeans[i] /= count;
-        }
-
-        // standard deviations
-        for (double[] features : trainingFeatures) {
-            for (int i = 0; i < SCALAR_COUNT; i++) {
-                double difference = features[i] - scalarMeans[i];
-                scalarStds[i] += difference * difference;
-            }
-        }
-
-        for (int i = 0; i < SCALAR_COUNT; i++) {
-            scalarStds[i] = Math.sqrt(scalarStds[i] / count);
-
-            // a constant feature has no spread, avoiding a division by zero
-            if (scalarStds[i] < 1e-12) {
-                scalarStds[i] = 1.0;
-            }
-        }
+        scalarMeans = Statistics.columnMeans(trainingFeatures, 0, SCALAR_COUNT);
+        scalarStds = Statistics.columnStandardDeviations(trainingFeatures, 0, scalarMeans);
+        Statistics.replaceBelow(scalarStds, 1e-12, 1.0);
     }
 
+    /** Checks whether the scalar standardizer has been fitted. */
     public boolean isFitted() {
         return scalarMeans != null && scalarStds != null;
     }
 
     /**
-     * Fails with a readable message when this extractor was fitted (and saved with
-     * a model) for another feature layout than the code now produces,
-     * e.g. a model trained before a feature was added. Such a model has to be
-     * retrained.
+     * Ensures loaded model properties match current class scalar configurations.
+     *
+     * @throws IllegalStateException If configured feature sizes mismatch stored model values.
      */
     public void requireCompatible() {
 
@@ -1680,11 +1454,10 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Z-score of the scalar features: (value - mean) / standard deviation, cut at
-     * +-config.zClip (see FeatureConfig.zClip). The profile blocks are copied unchanged.
+     * Standardizes scalar feature values to z-scores based on fitted dataset statistics.
      *
-     * @param features feature vector from getFeatures
-     * @return copy of the feature vector, with the scalar features standardised
+     * @param features Raw extracted feature array.
+     * @return Cloned array with standardized scalar components.
      */
     public double[] standardize(double[] features) {
 
@@ -1704,24 +1477,12 @@ public class FeatureExtractor implements Serializable {
         return standardized;
     }
 
-    // ---------------------------------------------------------------------
-    // The input of the retrieval model (one sentence, no pair)
-    // ---------------------------------------------------------------------
-
     /**
-     * The vector of ONE sentence that the embedding network of the retrieval model gets:
-     * the z-scores of the scalar features (cut like in the pair features, see FeatureConfig.zClip)
-     * followed by the square root of every profile bucket times profileScale.
+     * Generates floating-point embedding input vectors suitable for deep neural models.
      *
-     * Why the square root: a profile is a distribution (its buckets add up to 1), the square root
-     * (the Hellinger transform) makes the squared Euclidean distance between two profiles the
-     * Hellinger distance, which is a proper distance for distributions, and it gives the rare buckets
-     * a weight that is not lost next to the scalars. Every profile then has the length 1, and
-     * profileScale sets how loud the profiles are next to the (about 63) z-scores.
-     *
-     * @param raw          the vector from getFeatures
-     * @param profileScale the factor of the profile part (3 to 6 works, see the retrieval ablation)
-     * @return the network input, same length as getFeatures gives; the scaler has to be fitted
+     * @param raw Raw feature vector.
+     * @param profileScale Weight factor for profile distributions.
+     * @return Standardized float array representation.
      */
     public float[] embeddingInput(double[] raw, double profileScale) {
 
@@ -1731,6 +1492,7 @@ public class FeatureExtractor implements Serializable {
         for (int i = 0; i < SCALAR_COUNT; i++) {
             input[i] = (float) z[i];
         }
+        // Indices SCALAR_COUNT to raw.length keep ALL raw bucket values:
         for (int i = SCALAR_COUNT; i < raw.length; i++) {
             input[i] = (float) (Math.sqrt(Math.max(0.0, raw[i])) * profileScale);
         }
@@ -1738,23 +1500,17 @@ public class FeatureExtractor implements Serializable {
         return input;
     }
 
-    // ---------------------------------------------------------------------
-    // The pair vector
-    // ---------------------------------------------------------------------
-
     /**
-     * Writes the part of the pair vector that does NOT need the z-score parameters: the 4 measures of
-     * every profile block and (full features) the absolute difference of every bucket.
-     * (The columns of the scalar part and the overall distance are written by writeScalarPart.)
+     * Populates profile distance metrics and optional bucket differences into a pair vector.
      *
-     * @param features1 raw features of the first sentence (getFeatures)
-     * @param features2 raw features of the second sentence
-     * @param out       the pair vector, pairVectorLength() long
+     * @param features1 Raw features of sentence 1.
+     * @param features2 Raw features of sentence 2.
+     * @param out Target output pair array.
      */
     public void writeProfilePart(double[] features1, double[] features2, double[] out) {
 
         for (int b = 0; b < blockIds.length; b++) {
-            profileMeasures(features1, features2, blockOffsets[b], blockSizes[b], out,
+            DistributionDistances.compare(features1, features2, blockOffsets[b], blockSizes[b], out,
                     measureOffset() + b * MEASURES_PER_BLOCK);
         }
 
@@ -1770,31 +1526,27 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Writes the scalar part of the pair vector (according to the pair representation) and the overall
-     * distance.
+     * Populates scalar feature representation transforms and Euclidean distance metrics into a pair vector.
      *
-     * @param raw1 the RAW scalars of sentence 1 (getFeatures, only the first SCALAR_COUNT are used)
-     * @param raw2 the RAW scalars of sentence 2
-     * @param z1   the z-scores of sentence 1 (standardize)
-     * @param z2   the z-scores of sentence 2
-     * @param out  the pair vector, pairVectorLength() long
+     * @param raw1 Raw scalar features of sentence 1.
+     * @param raw2 Raw scalar features of sentence 2.
+     * @param z1 Standardized z-score array of sentence 1.
+     * @param z2 Standardized z-score array of sentence 2.
+     * @param out Target output pair array.
      */
     public void writeScalarPart(double[] raw1, double[] raw2, double[] z1, double[] z2, double[] out) {
 
         SentencePair.writeScalarPart(representation, raw1, raw2, z1, z2, SCALAR_COUNT, out);
 
-        double squaredDistance = 0.0;
-        for (int i = 0; i < SCALAR_COUNT; i++) {
-            double difference = z1[i] - z2[i];
-            squaredDistance += difference * difference;
-        }
-        out[distanceColumn()] = Math.sqrt(squaredDistance / SCALAR_COUNT);
+        out[distanceColumn()] = VectorMath.rootMeanSquareDifference(z1, z2, SCALAR_COUNT);
     }
 
     /**
-     * The complete pair vector of two sentences, from their raw features. Standardises
-     * both (the scaler has to be fitted) and, for the full features, standardises the bucket differences too
-     * (fitBlockDifferenceScaler has to be called). This is what every model gets at prediction time.
+     * Constructs the complete pair feature vector comparing two sentence feature arrays.
+     *
+     * @param raw1 Raw features of sentence 1.
+     * @param raw2 Raw features of sentence 2.
+     * @return Complete pair feature vector.
      */
     public double[] pairVector(double[] raw1, double[] raw2) {
 
@@ -1809,14 +1561,9 @@ public class FeatureExtractor implements Serializable {
     }
 
     /**
-     * Fits the z-score parameters (mean and standard deviation) of the profile bucket
-     * differences in the FULL pair features. The differences are small numbers (around 0.01), so
-     * without this the models would almost ignore them.
+     * Fits z-score normalization parameters over raw profile block differences in full pair vectors.
      *
-     * Use TRAINING pairs only, so nothing from the validation/test data leaks into
-     * the model.
-     *
-     * @param fullPairFeatures full pair feature vectors of the training pairs
+     * @param fullPairFeatures Matrix of full pair feature vectors.
      */
     public void fitBlockDifferenceScaler(double[][] fullPairFeatures) {
 
@@ -1831,46 +1578,17 @@ public class FeatureExtractor implements Serializable {
             throw new IllegalArgumentException("fullPairFeatures must be full pair vectors (config full=true)");
         }
 
-        blockDifferenceMeans = new double[nColumns];
-        blockDifferenceStds = new double[nColumns];
-
-        int count = fullPairFeatures.length;
-
-        // means
-        for (double[] pairFeatures : fullPairFeatures) {
-            for (int i = 0; i < nColumns; i++) {
-                blockDifferenceMeans[i] += pairFeatures[first + i];
-            }
-        }
-
-        for (int i = 0; i < nColumns; i++) {
-            blockDifferenceMeans[i] /= count;
-        }
-
-        // standard deviations
-        for (double[] pairFeatures : fullPairFeatures) {
-            for (int i = 0; i < nColumns; i++) {
-                double difference = pairFeatures[first + i] - blockDifferenceMeans[i];
-                blockDifferenceStds[i] += difference * difference;
-            }
-        }
-
-        for (int i = 0; i < nColumns; i++) {
-            blockDifferenceStds[i] = Math.sqrt(blockDifferenceStds[i] / count);
-
-            // a bucket that never differs has no spread, avoiding a division by zero
-            if (blockDifferenceStds[i] < 1e-12) {
-                blockDifferenceStds[i] = 1.0;
-            }
-        }
+        List<double[]> rows = Arrays.asList(fullPairFeatures);
+        blockDifferenceMeans = Statistics.columnMeans(rows, first, nColumns);
+        blockDifferenceStds = Statistics.columnStandardDeviations(rows, first, blockDifferenceMeans);
+        Statistics.replaceBelow(blockDifferenceStds, 1e-12, 1.0);
     }
 
     /**
-     * Z-score of the bucket differences of a FULL pair feature vector.
-     * The compressed features (the first compressedPairCount()) are copied unchanged.
+     * Standardizes raw profile bucket differences in a full pair feature vector.
      *
-     * @param fullPairFeatures full pair feature vector
-     * @return copy of the vector, with the bucket differences standardised
+     * @param fullPairFeatures Full pair feature vector.
+     * @return Standardized full pair vector.
      */
     public double[] standardizeBlockDifferences(double[] fullPairFeatures) {
 
@@ -1895,7 +1613,7 @@ public class FeatureExtractor implements Serializable {
         return standardized;
     }
 
-    /** One line for the logs and the metrics rows. */
+    /** Returns a concise string summary describing configuration layout dimensions. */
     public String describe() {
         return config.signature() + " -> " + SCALAR_COUNT + " scalars + " + blockIds.length + " profile blocks ("
                 + Arrays.toString(blockIds) + "), pair vector " + pairVectorLength();

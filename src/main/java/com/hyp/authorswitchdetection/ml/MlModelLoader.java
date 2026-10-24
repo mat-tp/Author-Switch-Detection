@@ -1,6 +1,6 @@
 package com.hyp.authorswitchdetection.ml;
 
-import models.ModelStore;
+import persistence.ModelStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Loading the trained models for prediction, through models.ModelStore (the same code and the same
+ * Loading the trained models for prediction, through persistence.ModelStore (the same code and the same
  * file format the command line uses, so a model trained with Main / RetrievalMain is picked up here).
  *
  * A model file that was saved by an older version of the code (another feature set) is NOT

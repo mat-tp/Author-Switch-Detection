@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 
 /** The logistic regression trained by Main / RealTrainer, see MlModelLoader. */
 @Component
-public class LogisticRegressionClassifier extends PairModelClassifier {
+public class LogisticRegressionClassifier extends StoredModelClassifier {
 
     public LogisticRegressionClassifier(MlModelLoader modelLoader) {
         super(modelLoader, MlModelLoader.LOGISTIC);

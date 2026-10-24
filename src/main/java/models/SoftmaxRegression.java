@@ -1,5 +1,7 @@
 package models;
 
+import util.ActivationFunctions;
+
 import java.io.Serializable;
 
 /**
@@ -34,15 +36,10 @@ public class SoftmaxRegression implements Serializable {
         return features;
     }
 
-    // ------------------------------------------------------------------
-    // Prediction
-    // ------------------------------------------------------------------
-
     /** The probabilities of the classes for one feature vector. */
     public double[] probabilities(double[] x) {
 
         double[] scores = new double[classes];
-        double max = Double.NEGATIVE_INFINITY;
 
         for (int c = 0; c < classes; c++) {
             double sum = weights[c][features];
@@ -50,19 +47,8 @@ public class SoftmaxRegression implements Serializable {
                 sum += weights[c][j] * x[j];
             }
             scores[c] = sum;
-            max = Math.max(max, sum);
         }
-
-        // subtracting the maximum keeps exp() from overflowing and changes nothing else
-        double total = 0.0;
-        for (int c = 0; c < classes; c++) {
-            scores[c] = Math.exp(scores[c] - max);
-            total += scores[c];
-        }
-        for (int c = 0; c < classes; c++) {
-            scores[c] /= total;
-        }
-        return scores;
+        return ActivationFunctions.softmax(scores);
     }
 
     /** The class with the highest probability. */
@@ -77,10 +63,6 @@ public class SoftmaxRegression implements Serializable {
         }
         return best;
     }
-
-    // ------------------------------------------------------------------
-    // Training
-    // ------------------------------------------------------------------
 
     /**
      * Mean cross-entropy (plus the L2 penalty) and its gradient, over all rows.

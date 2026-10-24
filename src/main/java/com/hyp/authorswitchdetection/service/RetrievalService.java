@@ -1,7 +1,8 @@
 package com.hyp.authorswitchdetection.service;
 
+import cli.RetrievalMain;
 import com.hyp.authorswitchdetection.ml.MlModelLoader;
-import models.ModelStore;
+import persistence.ModelStore;
 import models.RetrievalModel;
 import org.springframework.stereotype.Service;
 

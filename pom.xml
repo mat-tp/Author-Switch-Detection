@@ -5,9 +5,10 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.3</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <version>3.5.7</version>   <!-- any 3.5.5 or newer -->
+        <relativePath/>
     </parent>
+
     <groupId>com.hyp</groupId>
     <artifactId>Author-Switch-Detection</artifactId>
     <version>0.0.1-SNAPSHOT</version>
@@ -15,7 +16,7 @@
     <description>Author Switch Detection Application</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>25</java.version>
     </properties>
 
     <dependencies>
