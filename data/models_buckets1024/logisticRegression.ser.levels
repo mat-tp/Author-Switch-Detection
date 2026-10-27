@@ -1,0 +1,5 @@
+# Threshold of each difficulty level for logisticRegression.ser
+# chosen on the first half of the validation split of each level; by Main
+easy=0.6200
+medium=0.7050
+hard=0.4200

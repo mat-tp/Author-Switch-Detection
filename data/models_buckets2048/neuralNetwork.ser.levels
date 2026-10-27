@@ -1,0 +1,5 @@
+# Threshold of each difficulty level for neuralNetwork.ser
+# chosen on the first half of the validation split of each level; by Main
+easy=0.5150
+medium=0.6100
+hard=0.3950
